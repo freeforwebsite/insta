@@ -141,11 +141,32 @@ def render_download_card(
     current_idx: int = 1,
     total_idx: int = 1,
 ) -> str:
-    """Renders the aesthetic CinePrime Music Download Engine live status card."""
-    circle_frames = ["◐", "◓", "◑", "◒", "◔", "◕", "◖", "◗"]
-    spinner = circle_frames[spinner_idx % len(circle_frames)]
-    filled = max(0, min(10, int(percent / 10)))
-    bar = "▰" * filled + "▱" * (10 - filled)
+    """Renders the aesthetic CinePrime Music Download Engine with 14-segment circular dial."""
+    total_blocks = 14
+    filled_count = int(round((percent / 100.0) * total_blocks))
+    filled_count = max(0, min(total_blocks, filled_count))
+
+    # Clockwise order: 0 (top-left) -> 1 (top-mid) -> 2 (top-right) -> 3 (upper-right) ->
+    # 4 (mid-right top) -> 5 (mid-right bot) -> 6 (lower-right) -> 7 (bot-right) ->
+    # 8 (bot-mid) -> 9 (bot-left) -> 10 (lower-left) -> 11 (mid-left bot) ->
+    # 12 (mid-left top) -> 13 (upper-left)
+    seq = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    is_filled = {seg: (idx < filled_count) for idx, seg in enumerate(seq)}
+
+    def b(seg_id):
+        return "▰" if is_filled.get(seg_id) else "▱"
+
+    pct_str = f"{int(percent)}%".center(7)
+    status_center = "LOADING" if "download" in status_label.lower() else status_label[:7].upper().center(7)
+
+    circle_art = (
+        f"          {b(0)}  {b(1)}  {b(2)}\n"
+        f"       {b(13)}          {b(3)}\n"
+        f"     {b(12)}    {pct_str}   {b(4)}\n"
+        f"     {b(11)}   {status_center}   {b(5)}\n"
+        f"       {b(10)}          {b(6)}\n"
+        f"          {b(9)}  {b(8)}  {b(7)}"
+    )
 
     dl_mb = (downloaded_bytes / (1024 * 1024)) if downloaded_bytes else 0.0
     tot_mb = (total_bytes / (1024 * 1024)) if total_bytes else 0.0
@@ -162,7 +183,7 @@ def render_download_card(
         f"🎵 *{title}*\n"
         f"👤 Artist: *{artist}*\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{spinner} `[{bar}]` *{percent:.1f}%*\n"
+        f"```\n{circle_art}\n```\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📥 *DOWNLOADING AUDIO{batch_sub}*\n\n"
         f"📦 Downloaded : `{dl_mb:.1f} / {tot_mb:.1f} MB`\n"
