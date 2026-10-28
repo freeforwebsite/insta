@@ -74,15 +74,42 @@ def sanitize_filename(name: str) -> str:
 
 
 def create_zip_archive(files: List[str], base_name: str, output_dir: str) -> Optional[str]:
-    """Compresses all files into a single zip archive for cloud delivery."""
+    """Compresses all files into a single zip archive with CinePrime branding for cloud delivery."""
     if not files:
         return None
     safe_name = sanitize_filename(base_name)
     zip_path = os.path.join(output_dir, f"{safe_name}.zip")
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        # Add CinePrime Brand Shortcuts and Info file
+        z.writestr(
+            "Join CinePrime Channel.url",
+            "[InternetShortcut]\nURL=https://t.me/cineprimehub\nIconIndex=0\n",
+        )
+        z.writestr(
+            "CinePrime Music Bot.url",
+            "[InternetShortcut]\nURL=https://t.me/CinePrimeMusicBot\nIconIndex=0\n",
+        )
+        z.writestr(
+            "About CinePrime Music.txt",
+            "==================================================\n"
+            "            🎧 CINEPRIME MUSIC HUB 🎧              \n"
+            "==================================================\n\n"
+            "Official Telegram Channel : https://t.me/cineprimehub\n"
+            "Official Music Downloader : https://t.me/CinePrimeMusicBot\n\n"
+            "Thank you for choosing CinePrime Music!\n"
+            "• Studio Master 320kbps Audio\n"
+            "• Clean Embedded ID3 Tags & Album Cover Art\n"
+            "• High-Speed Cloud Downloads\n\n"
+            "Join @cineprimehub for daily song releases, playlists & requests!\n"
+            "==================================================\n"
+        )
+
         for file_path in files:
             if os.path.exists(file_path):
-                z.write(file_path, arcname=os.path.basename(file_path))
+                base = os.path.basename(file_path)
+                name, ext = os.path.splitext(base)
+                branded_name = f"{name} [CinePrime]{ext}" if "[CinePrime]" not in base else base
+                z.write(file_path, arcname=branded_name)
     return zip_path if os.path.exists(zip_path) else None
 
 
@@ -542,7 +569,7 @@ async def process_single_track(
     if cached:
         try:
             await status_msg.edit_text("⚡ *Sending audio...*", parse_mode=ParseMode.MARKDOWN)
-            user_caption = f"🎵 *{cached['title']}*\n👤 {cached['artist']}\n🎧 {quality}kbps • @CinePrimeMusicBot"
+            user_caption = f"🎵 *{cached['title']}*\n👤 {cached['artist']}\n🎧 {quality}kbps • @CinePrimeMusicBot\n📢 @cineprimehub"
             await message.reply_audio(
                 audio=cached["file_id"],
                 title=cached["title"],
@@ -636,6 +663,7 @@ async def process_single_track(
             thumbnail_url=thumb_url,
             title=song_title,
             artist=artist,
+            album=track.get("album") or "CinePrime Music",
             progress_callback=on_progress,
         )
 
@@ -645,7 +673,7 @@ async def process_single_track(
 
         await status_msg.edit_text("📤 *Uploading audio to Telegram...*", parse_mode=ParseMode.MARKDOWN)
 
-        user_caption = f"🎵 *{song_title}*\n👤 {artist}\n🎧 {quality}kbps • @CinePrimeMusicBot"
+        user_caption = f"🎵 *{song_title}*\n👤 {artist}\n🎧 {quality}kbps • @CinePrimeMusicBot\n📢 @cineprimehub"
         with open(mp3_path, "rb") as audio_file:
             sent_audio = await message.reply_audio(
                 audio=audio_file,
@@ -954,6 +982,7 @@ async def run_zip_delivery(
                 thumbnail_url=track.get("thumbnail_url") or thumb_url,
                 title=song_title,
                 artist=artist,
+                album=title,
                 progress_callback=on_inner,
             )
             if mp3_path and os.path.exists(mp3_path):

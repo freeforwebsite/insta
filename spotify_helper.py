@@ -10,7 +10,7 @@ import requests
 import yt_dlp
 import mutagen
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, error
+from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, COMM, TPUB, TCOP, error
 
 logger = logging.getLogger(__name__)
 
@@ -551,8 +551,14 @@ def fetch_more_artist_songs(artist_name: str, language: Optional[str] = None, co
     return songs
 
 
-def embed_metadata(mp3_path: str, title: str, artist: str, thumbnail_url: Optional[str] = None):
-    """Embeds ID3 metadata and cover art directly into the MP3 file."""
+def embed_metadata(
+    mp3_path: str,
+    title: str,
+    artist: str,
+    thumbnail_url: Optional[str] = None,
+    album: Optional[str] = None,
+):
+    """Embeds ID3 metadata, CinePrime branding, and cover art directly into the MP3 file."""
     try:
         audio = MP3(mp3_path, ID3=ID3)
         try:
@@ -562,6 +568,20 @@ def embed_metadata(mp3_path: str, title: str, artist: str, thumbnail_url: Option
 
         audio.tags.add(TIT2(encoding=3, text=title))
         audio.tags.add(TPE1(encoding=3, text=artist))
+
+        # CinePrime Branding Tags
+        album_name = f"{album} - CinePrime" if album else "CinePrime Music"
+        audio.tags.add(TALB(encoding=3, text=album_name))
+        audio.tags.add(TPUB(encoding=3, text="CinePrime Music"))
+        audio.tags.add(TCOP(encoding=3, text="CinePrime Hub (@cineprimehub)"))
+        audio.tags.add(
+            COMM(
+                encoding=3,
+                lang="eng",
+                desc="Channel",
+                text="Downloaded via @CinePrimeMusicBot | Join @cineprimehub",
+            )
+        )
 
         # Download and embed cover image
         if thumbnail_url:
@@ -593,6 +613,7 @@ def download_from_saavn_cdn(
     title: Optional[str] = None,
     artist: Optional[str] = None,
     thumbnail_url: Optional[str] = None,
+    album: Optional[str] = None,
     progress_callback: Optional[callable] = None,
 ) -> Optional[str]:
     """
@@ -673,8 +694,9 @@ def download_from_saavn_cdn(
             t_name = title or s.get("title") or clean_query
             a_name = artist or s.get("singers") or "CinePrime Music"
             t_thumb = thumbnail_url or s.get("image", "").replace("150x150", "500x500")
-            embed_metadata(final_mp3, t_name, a_name, t_thumb)
-            logger.info(f"Successfully downloaded from JioSaavn CDN: {t_name}")
+            alb_name = album or s.get("more_info", {}).get("album") or "CinePrime Music"
+            embed_metadata(final_mp3, t_name, a_name, t_thumb, album=alb_name)
+            logger.info(f"Successfully downloaded from JioSaavn CDN with CinePrime branding: {t_name}")
             return final_mp3
 
     except Exception as e:
@@ -692,11 +714,12 @@ def download_song(
     thumbnail_url: Optional[str] = None,
     title: Optional[str] = None,
     artist: Optional[str] = None,
+    album: Optional[str] = None,
     progress_callback: Optional[callable] = None,
 ) -> Optional[str]:
     """
     Downloads audio matching query using yt-dlp and ffmpeg, converting to MP3.
-    Applies audio quality bitrate and embeds ID3 tags and album cover art.
+    Applies audio quality bitrate and embeds ID3 tags, CinePrime branding, and album cover art.
     Supports dynamic progress updates via progress_callback.
     """
     # 1. Primary engine: JioSaavn CDN direct download (bypasses YouTube datacenter blocks)
@@ -709,6 +732,7 @@ def download_song(
             title=title,
             artist=artist,
             thumbnail_url=thumbnail_url,
+            album=album,
             progress_callback=progress_callback,
         )
         if saavn_mp3 and os.path.exists(saavn_mp3):
@@ -783,7 +807,7 @@ def download_song(
 
                 t_name = title or query
                 a_name = artist or "CinePrime Music"
-                embed_metadata(downloaded_mp3, t_name, a_name, thumbnail_url)
+                embed_metadata(downloaded_mp3, t_name, a_name, thumbnail_url, album=album)
 
                 return downloaded_mp3
 
