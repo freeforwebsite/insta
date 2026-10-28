@@ -4,9 +4,16 @@
 # ==============================================================================
 set -e
 
-echo "🎵 [MUSIC BOT] Installing system dependencies (ffmpeg, python3-pip)..."
+echo "🎵 [MUSIC BOT] Installing system dependencies (ffmpeg, python3-pip, git)..."
 sudo apt-get update -y
-sudo apt-get install -y ffmpeg python3-pip
+sudo apt-get install -y ffmpeg python3-pip git
+
+# Ensure PM2 is installed
+if ! command -v pm2 &> /dev/null; then
+    echo "⚙️ [MUSIC BOT] PM2 not found. Installing Node.js & PM2..."
+    sudo apt-get install -y nodejs npm
+    sudo npm install -g pm2
+fi
 
 echo "📦 [MUSIC BOT] Installing Python dependencies..."
 pip3 install -r requirements.txt --break-system-packages
