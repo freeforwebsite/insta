@@ -741,6 +741,12 @@ def download_song(
         },
     }
 
+    # Automatically load YouTube cookies if present in project directory
+    cookie_file = os.getenv("YOUTUBE_COOKIE_FILE", "cookies.txt")
+    if os.path.exists(cookie_file) and os.path.getsize(cookie_file) > 10:
+        ydl_opts["cookiefile"] = cookie_file
+        logger.info(f"Loaded YouTube authentication cookies from: {cookie_file}")
+
     if progress_callback:
         def hook(d):
             try:
