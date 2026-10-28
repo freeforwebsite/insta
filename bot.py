@@ -179,10 +179,31 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 📦 *Format Choices:* Download as **Single Songs** or full **ZIP Archive**\n"
         "• 🖼️ *Cover Art:* High resolution artwork embedded in every song\n"
         "• 🔍 *Inline Search:* Type `@CinePrimeMusicBot <song>` anywhere to share music\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⚖️ *Legal Disclaimer:* We do not host or store any copyrighted files on our servers. All media streams are fetched dynamically from public third-party online sources. Read /disclaimer for details.\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "👉 *Paste any music link below to get started!*"
     )
     await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN)
+
+
+async def disclaimer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Shows copyright and content source disclaimer."""
+    disclaimer_text = (
+        "⚖️ *Copyright & Content Disclaimer*\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "• 🚫 *Zero Hosting Policy:*\n"
+        "@CinePrimeMusicBot does **NOT** host, upload, or store any copyrighted audio or media files on its servers or databases. All databases only store reference indexes and message pointers.\n\n"
+        "• 🌐 *Third-Party Public Sources:*\n"
+        "This bot functions strictly as an automated search tool and metadata parser. All audio tracks delivered are fetched on-the-fly directly from publicly accessible third-party online platforms on the internet (such as YouTube, SoundCloud, and open streaming endpoints).\n\n"
+        "• 👑 *Intellectual Property Rights:*\n"
+        "All music, lyrics, artist likenesses, and album artworks remain the sole intellectual property of their respective copyright owners, record labels, and content creators.\n\n"
+        "• 📚 *Fair Use & Non-Commercial Notice:*\n"
+        "This bot is intended strictly for personal, private archival, and educational fair-use purposes.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📩 _For copyright questions, DMCA inquiries, or takedown requests, please contact the originating content hosting platform directly._"
+    )
+    await update.message.reply_text(disclaimer_text, parse_mode=ParseMode.MARKDOWN)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -193,7 +214,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2️⃣ Paste the link into this chat.\n"
         "3️⃣ Choose your track count and audio quality.\n"
         "4️⃣ Tap **📦 ZIP File** or **🎵 Single Songs**.\n\n"
-        "⚡ _Pro Tip: Type `@CinePrimeMusicBot <song>` in any Telegram chat to instantly search and share songs!_"
+        "⚡ _Pro Tip: Type `@CinePrimeMusicBot <song>` in any Telegram chat to instantly search and share songs!_\n\n"
+        "⚖️ Type /disclaimer to read our copyright & non-hosting legal policy."
     )
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 
@@ -1157,6 +1179,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("disclaimer", disclaimer_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback_query))
