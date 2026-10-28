@@ -10,7 +10,7 @@ import requests
 import yt_dlp
 import mutagen
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, COMM, TPUB, TCOP, error
+from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, TPE2, COMM, TPUB, TCOP, error
 
 logger = logging.getLogger(__name__)
 
@@ -570,8 +570,9 @@ def embed_metadata(
         audio.tags.add(TPE1(encoding=3, text=artist))
 
         # CinePrime Branding Tags
-        album_name = f"{album} - CinePrime" if album else "CinePrime Music"
+        album_name = f"{album} | CinePrime Music" if album else "CinePrime Music"
         audio.tags.add(TALB(encoding=3, text=album_name))
+        audio.tags.add(TPE2(encoding=3, text="@CinePrimeMusicBot"))
         audio.tags.add(TPUB(encoding=3, text="CinePrime Music"))
         audio.tags.add(TCOP(encoding=3, text="CinePrime Hub (@cineprimehub)"))
         audio.tags.add(
@@ -579,7 +580,7 @@ def embed_metadata(
                 encoding=3,
                 lang="eng",
                 desc="Channel",
-                text="Downloaded via @CinePrimeMusicBot | Join @cineprimehub",
+                text="Downloaded via @CinePrimeMusicBot | Channel: @cineprimehub",
             )
         )
 
@@ -650,7 +651,7 @@ def download_from_saavn_cdn(
         os.makedirs(output_dir, exist_ok=True)
         safe_name = re.sub(r'[\\/*?:"<>|]', "", title or clean_query)[:50].strip()
         temp_mp4 = os.path.join(output_dir, f"{filename_prefix}{safe_name}_saavn.mp4")
-        final_mp3 = os.path.join(output_dir, f"{filename_prefix}{safe_name}.mp3")
+        final_mp3 = os.path.join(output_dir, f"{filename_prefix}{safe_name} @CinePrimeMusicBot.mp3")
 
         with requests.get(cdn_url, stream=True, timeout=15) as resp:
             if resp.status_code != 200:
@@ -691,10 +692,10 @@ def download_from_saavn_cdn(
                 pass
 
         if res.returncode == 0 and os.path.exists(final_mp3):
-            t_name = title or s.get("title") or clean_query
+            t_name = title or s.get("song") or s.get("title") or clean_query
             a_name = artist or s.get("singers") or "CinePrime Music"
             t_thumb = thumbnail_url or s.get("image", "").replace("150x150", "500x500")
-            alb_name = album or s.get("more_info", {}).get("album") or "CinePrime Music"
+            alb_name = album or s.get("album") or "CinePrime Music"
             embed_metadata(final_mp3, t_name, a_name, t_thumb, album=alb_name)
             logger.info(f"Successfully downloaded from JioSaavn CDN with CinePrime branding: {t_name}")
             return final_mp3
@@ -804,6 +805,18 @@ def download_song(
                             os.remove(os.path.join(output_dir, extra))
                         except Exception:
                             pass
+
+                # Apply @CinePrimeMusicBot filename branding
+                base_fname = os.path.basename(downloaded_mp3)
+                stem, ext = os.path.splitext(base_fname)
+                if "@CinePrimeMusicBot" not in stem:
+                    branded_fname = f"{stem} @CinePrimeMusicBot{ext}"
+                    branded_path = os.path.join(output_dir, branded_fname)
+                    try:
+                        os.rename(downloaded_mp3, branded_path)
+                        downloaded_mp3 = branded_path
+                    except Exception:
+                        pass
 
                 t_name = title or query
                 a_name = artist or "CinePrime Music"
