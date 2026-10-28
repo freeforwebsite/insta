@@ -124,6 +124,66 @@ async def safe_edit_message(msg, text: str, parse_mode=ParseMode.MARKDOWN):
         pass
 
 
+def render_download_card(
+    title: str,
+    artist: str,
+    percent: float,
+    downloaded_bytes: float,
+    total_bytes: float,
+    speed_bytes: float,
+    eta_seconds: float,
+    elapsed_seconds: float,
+    platform: str = "Spotify",
+    quality: str = "320",
+    status_label: str = "Downloading...",
+    spinner_idx: int = 0,
+    is_batch: bool = False,
+    current_idx: int = 1,
+    total_idx: int = 1,
+) -> str:
+    """Renders the aesthetic CinePrime Music Download Engine live status card."""
+    circle_frames = ["◐", "◓", "◑", "◒", "◔", "◕", "◖", "◗"]
+    spinner = circle_frames[spinner_idx % len(circle_frames)]
+    filled = max(0, min(10, int(percent / 10)))
+    bar = "▰" * filled + "▱" * (10 - filled)
+
+    dl_mb = (downloaded_bytes / (1024 * 1024)) if downloaded_bytes else 0.0
+    tot_mb = (total_bytes / (1024 * 1024)) if total_bytes else 0.0
+    speed_mb = (speed_bytes / (1024 * 1024)) if speed_bytes else 0.0
+
+    eta_str = format_time(eta_seconds)
+    elapsed_str = format_time(elapsed_seconds)
+
+    header_title = "BATCH DOWNLOAD ENGINE" if is_batch else "MUSIC DOWNLOAD ENGINE"
+    batch_sub = f" ({current_idx}/{total_idx})" if is_batch else ""
+
+    card = (
+        f"╭━━━ 🎧 {header_title} ━━━╮\n\n"
+        f"🎵 *{title}*\n"
+        f"👤 Artist: *{artist}*\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{spinner} `[{bar}]` *{percent:.1f}%*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📥 *DOWNLOADING AUDIO{batch_sub}*\n\n"
+        f"📦 Downloaded : `{dl_mb:.1f} / {tot_mb:.1f} MB`\n"
+        f"⚡ Speed      : `{speed_mb:.1f} MB/s`\n"
+        f"⏳ Remaining  : `{eta_str}`\n"
+        f"🕒 Elapsed    : `{elapsed_str}`\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"⚙️ *ENGINE STATUS*\n\n"
+        f"• Source     : `{platform.capitalize()}`\n"
+        f"• Downloader : `yt-dlp`\n"
+        f"• Processor  : `FFmpeg`\n"
+        f"• Format     : `MP3`\n"
+        f"• Quality    : `{quality} kbps`\n"
+        f"• Status     : `{status_label}`\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"       *Powered by @CinePrimeMusicBot*\n"
+        f"╰━━━━━━━━━━━━━━━━━━━━━━━━╯"
+    )
+    return card
+
+
 async def check_channel_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Verifies if the user is subscribed to the required channel."""
     if not FORCE_SUB_CHANNEL:
@@ -506,21 +566,22 @@ async def process_single_track(
             logger.warning(f"Cached send failed, falling back to fresh download: {e}")
 
     # 2. Fresh download with Live CinePrime Ultra-Engine
-    init_circle = format_circle_progress(0, 0)
-    await safe_edit_message(
-        status_msg,
-        f"╭────────────────────────────╮\n"
-        f"│   ⚡ *CinePrime Ultra-Engine*   │\n"
-        f"╰────────────────────────────╯\n\n"
-        f"{init_circle}\n"
-        f"🎵 *Song:* `{song_title}`\n"
-        f"👤 *Artist:* `{artist}`\n\n"
-        f"⏱️ *Estimate Time:* `Calculating...`\n"
-        f"📦 *Total Size:* `Fetching stream...`\n"
-        f"⚡ *Speed:* `Connecting...`\n"
-        f"⚙️ *Engine:* `yt-dlp v2024 • FFmpeg (Android Node)`\n"
-        f"🎧 *Target Quality:* `{quality}kbps MP3`"
+    start_time = time.time()
+    init_card = render_download_card(
+        title=song_title,
+        artist=artist,
+        percent=0.0,
+        downloaded_bytes=0,
+        total_bytes=0,
+        speed_bytes=0,
+        eta_seconds=0,
+        elapsed_seconds=0,
+        platform=platform,
+        quality=quality,
+        status_label="Connecting...",
+        spinner_idx=0,
     )
+    await safe_edit_message(status_msg, init_card)
     await message.chat.send_action(ChatAction.UPLOAD_VOICE)
 
     loop = asyncio.get_running_loop()
@@ -533,6 +594,7 @@ async def process_single_track(
             return
         last_edit[0] = now
         status = d.get("status")
+        elapsed = now - start_time
         if status == "downloading":
             downloaded = d.get("downloaded_bytes", 0)
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
@@ -540,37 +602,38 @@ async def process_single_track(
             eta = d.get("eta") or 0
             pct = (downloaded / total * 100) if total else 0
             spinner_idx[0] += 1
-            circle = format_circle_progress(pct, spinner_idx[0])
-            eta_str = format_time(eta)
-            speed_str = f"{speed / (1024 * 1024):.1f} MB/s" if speed else "Calculating..."
-            dl_str = format_bytes(downloaded)
-            tot_str = format_bytes(total)
-            text = (
-                f"╭────────────────────────────╮\n"
-                f"│   ⚡ *CinePrime Ultra-Engine*   │\n"
-                f"╰────────────────────────────╯\n\n"
-                f"{circle}\n"
-                f"🎵 *Song:* `{song_title}`\n"
-                f"👤 *Artist:* `{artist}`\n\n"
-                f"⏱️ *Estimate Time:* `{eta_str}`\n"
-                f"📦 *Total Size:* `{dl_str} / {tot_str}`\n"
-                f"⚡ *Speed:* `{speed_str}`\n"
-                f"⚙️ *Engine:* `yt-dlp v2024 • FFmpeg (Android Node)`\n"
-                f"🎧 *Audio Bitrate:* `{quality}kbps MP3`"
+            card = render_download_card(
+                title=song_title,
+                artist=artist,
+                percent=pct,
+                downloaded_bytes=downloaded,
+                total_bytes=total,
+                speed_bytes=speed,
+                eta_seconds=eta,
+                elapsed_seconds=elapsed,
+                platform=platform,
+                quality=quality,
+                status_label="Downloading...",
+                spinner_idx=spinner_idx[0],
             )
-            asyncio.run_coroutine_threadsafe(safe_edit_message(status_msg, text), loop)
+            asyncio.run_coroutine_threadsafe(safe_edit_message(status_msg, card), loop)
         elif status == "finished":
-            text = (
-                f"╭────────────────────────────╮\n"
-                f"│   ⚡ *CinePrime Ultra-Engine*   │\n"
-                f"╰────────────────────────────╯\n\n"
-                f"⚙️ `[▰▰▰▰▰▰▰▰▰▰]` *100%*\n"
-                f"🎵 *Song:* `{song_title}`\n\n"
-                f"🎚️ *Processing:* `Converting to {quality}kbps MP3 via FFmpeg...`\n"
-                f"🎨 *Metadata:* `Embedding HD Album Art & ID3 Tags...`\n"
-                f"⚙️ *Engine:* `FFmpeg Audio Core`"
+            total_b = d.get("total_bytes") or d.get("downloaded_bytes") or 0
+            card = render_download_card(
+                title=song_title,
+                artist=artist,
+                percent=100.0,
+                downloaded_bytes=total_b,
+                total_bytes=total_b,
+                speed_bytes=0,
+                eta_seconds=0,
+                elapsed_seconds=elapsed,
+                platform=platform,
+                quality=quality,
+                status_label="Processing FFmpeg...",
+                spinner_idx=spinner_idx[0],
             )
-            asyncio.run_coroutine_threadsafe(safe_edit_message(status_msg, text), loop)
+            asyncio.run_coroutine_threadsafe(safe_edit_message(status_msg, card), loop)
 
     temp_folder = os.path.join(TEMP_BASE_DIR, str(uuid.uuid4()))
     try:
@@ -838,21 +901,25 @@ async def run_zip_delivery(
         circle = format_circle_progress(batch_pct, i)
         collected_bytes = sum(os.path.getsize(f) for f in downloaded_files if os.path.exists(f))
 
+        card = render_download_card(
+            title=song_title,
+            artist=artist,
+            percent=batch_pct,
+            downloaded_bytes=collected_bytes,
+            total_bytes=collected_bytes * (target_count / i) if i > 0 else 0,
+            speed_bytes=0,
+            eta_seconds=eta_batch,
+            elapsed_seconds=elapsed,
+            platform=platform,
+            quality=quality,
+            status_label=f"Batch Track {i}/{target_count}",
+            spinner_idx=i,
+            is_batch=True,
+            current_idx=i,
+            total_idx=target_count,
+        )
         try:
-            await safe_edit_message(
-                progress_msg,
-                f"╭───────────────────────────────╮\n"
-                f"│    ⚡ *CinePrime Batch Engine*    │\n"
-                f"╰───────────────────────────────╯\n\n"
-                f"{circle}\n"
-                f"📊 *Batch Progress:* `{i}/{target_count}` Songs Completed\n"
-                f"🎵 *Downloading:* `{song_title}`\n"
-                f"👤 *Artist:* `{artist}`\n\n"
-                f"⏱️ *Estimate Remaining:* `{format_time(eta_batch)}`\n"
-                f"📦 *Total Size:* `{format_bytes(collected_bytes)}`\n"
-                f"⚙️ *Engine:* `yt-dlp Multi-Stream • FFmpeg Core (Android Node)`\n"
-                f"🎧 *Bitrate Target:* `{quality}kbps MP3`"
-            )
+            await safe_edit_message(progress_msg, card)
 
             loop = asyncio.get_running_loop()
             last_inner = [0.0]
@@ -864,23 +931,27 @@ async def run_zip_delivery(
                 last_inner[0] = now
                 if d.get("status") == "downloading":
                     speed = d.get("speed") or 0
-                    speed_str = f"{speed / (1024 * 1024):.1f} MB/s" if speed else "Calculating..."
                     cur_dl = d.get("downloaded_bytes", 0)
                     cur_tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                    text = (
-                        f"╭───────────────────────────────╮\n"
-                        f"│    ⚡ *CinePrime Batch Engine*    │\n"
-                        f"╰───────────────────────────────╯\n\n"
-                        f"{circle}\n"
-                        f"📊 *Batch Progress:* `{i}/{target_count}` Songs Completed\n"
-                        f"🎵 *Downloading:* `{song_title}`\n"
-                        f"👤 *Artist:* `{artist}`\n\n"
-                        f"⚡ *Stream Speed:* `{speed_str}`\n"
-                        f"📦 *Track Size:* `{format_bytes(cur_dl)} / {format_bytes(cur_tot)}`\n"
-                        f"⏱️ *Batch Remaining:* `{format_time(eta_batch)}`\n"
-                        f"⚙️ *Engine:* `yt-dlp Multi-Stream • FFmpeg (Android Node)`"
+                    pct = (cur_dl / cur_tot * 100) if cur_tot else batch_pct
+                    inner_card = render_download_card(
+                        title=song_title,
+                        artist=artist,
+                        percent=pct,
+                        downloaded_bytes=collected_bytes + cur_dl,
+                        total_bytes=collected_bytes * (target_count / i) if i > 0 else cur_tot,
+                        speed_bytes=speed,
+                        eta_seconds=eta_batch,
+                        elapsed_seconds=now - start_batch_time,
+                        platform=platform,
+                        quality=quality,
+                        status_label=f"Streaming Track {i}/{target_count}",
+                        spinner_idx=i + int(now) % 8,
+                        is_batch=True,
+                        current_idx=i,
+                        total_idx=target_count,
                     )
-                    asyncio.run_coroutine_threadsafe(safe_edit_message(progress_msg, text), loop)
+                    asyncio.run_coroutine_threadsafe(safe_edit_message(progress_msg, inner_card), loop)
 
             mp3_path = await asyncio.to_thread(
                 download_song,
@@ -1003,19 +1074,23 @@ async def run_single_delivery(
                 continue
 
             # 2. Fresh download with live engine stats
-            circle = format_circle_progress(((i - 1) / target_count) * 100, i)
-            await safe_edit_message(
-                progress_msg,
-                f"╭───────────────────────────────╮\n"
-                f"│    ⚡ *CinePrime Ultra-Engine*    │\n"
-                f"╰───────────────────────────────╯\n\n"
-                f"{circle}\n"
-                f"📊 *Delivering:* `{i}/{target_count}` Singles\n"
-                f"🎵 *Downloading:* `{song_title}`\n"
-                f"👤 *Artist:* `{artist}`\n\n"
-                f"⚙️ *Engine:* `yt-dlp v2024 • FFmpeg Core (Android Node)`\n"
-                f"🎧 *Audio Bitrate:* `{quality}kbps MP3`"
+            single_start = time.time()
+            card = render_download_card(
+                title=song_title,
+                artist=artist,
+                percent=((i - 1) / target_count) * 100,
+                downloaded_bytes=0,
+                total_bytes=0,
+                speed_bytes=0,
+                eta_seconds=0,
+                elapsed_seconds=0,
+                platform=platform,
+                quality=quality,
+                status_label=f"Connecting ({i}/{target_count})...",
+                spinner_idx=i,
+                is_batch=False,
             )
+            await safe_edit_message(progress_msg, card)
             await query.message.chat.send_action(ChatAction.UPLOAD_VOICE)
 
             loop = asyncio.get_running_loop()
@@ -1028,24 +1103,26 @@ async def run_single_delivery(
                 last_inner[0] = now
                 if d.get("status") == "downloading":
                     speed = d.get("speed") or 0
-                    speed_str = f"{speed / (1024 * 1024):.1f} MB/s" if speed else "Calculating..."
                     cur_dl = d.get("downloaded_bytes", 0)
                     cur_tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                     eta = d.get("eta") or 0
-                    text = (
-                        f"╭───────────────────────────────╮\n"
-                        f"│    ⚡ *CinePrime Ultra-Engine*    │\n"
-                        f"╰───────────────────────────────╯\n\n"
-                        f"{circle}\n"
-                        f"📊 *Delivering:* `{i}/{target_count}` Singles\n"
-                        f"🎵 *Downloading:* `{song_title}`\n"
-                        f"👤 *Artist:* `{artist}`\n\n"
-                        f"⏱️ *Estimate Time:* `{format_time(eta)}`\n"
-                        f"📦 *Track Size:* `{format_bytes(cur_dl)} / {format_bytes(cur_tot)}`\n"
-                        f"⚡ *Speed:* `{speed_str}`\n"
-                        f"⚙️ *Engine:* `yt-dlp v2024 • FFmpeg (Android Node)`"
+                    pct = (cur_dl / cur_tot * 100) if cur_tot else 0
+                    inner_card = render_download_card(
+                        title=song_title,
+                        artist=artist,
+                        percent=pct,
+                        downloaded_bytes=cur_dl,
+                        total_bytes=cur_tot,
+                        speed_bytes=speed,
+                        eta_seconds=eta,
+                        elapsed_seconds=now - single_start,
+                        platform=platform,
+                        quality=quality,
+                        status_label=f"Downloading ({i}/{target_count})...",
+                        spinner_idx=i + int(now) % 8,
+                        is_batch=False,
                     )
-                    asyncio.run_coroutine_threadsafe(safe_edit_message(progress_msg, text), loop)
+                    asyncio.run_coroutine_threadsafe(safe_edit_message(progress_msg, inner_card), loop)
 
             mp3_path = await asyncio.to_thread(
                 download_song,
