@@ -218,6 +218,53 @@ def fetch_spotify_via_api(item_type: str, item_id: str, client_id: str, client_s
     return None
 
 
+def fetch_spotify_via_spotapi(item_id: str) -> Optional[Dict]:
+    """
+    Fetches ALL tracks from a Spotify playlist (100, 152, 500+ tracks)
+    using Spotify's public pathfinder GraphQL API via spotapi (no premium needed).
+    """
+    try:
+        import spotapi
+        p = spotapi.PublicPlaylist(item_id)
+        info = p.get_playlist_info(limit=5)
+        data = info.get("data", {}).get("playlistV2", {})
+        title = data.get("name", "Spotify Playlist")
+        images = data.get("images", {}).get("items", [])
+        thumb = images[0].get("sources", [{}])[0].get("url") if images else None
+
+        tracks = []
+        for chunk in p.paginate_playlist():
+            for item in chunk.get("items", []):
+                track_data = item.get("itemV2", {}).get("data", {})
+                t_name = track_data.get("name")
+                if not t_name:
+                    continue
+                artists_items = track_data.get("artists", {}).get("items", [])
+                t_artists = ", ".join(a.get("profile", {}).get("name", "") for a in artists_items)
+                t_dur = (track_data.get("trackDuration", {}).get("totalMilliseconds") or 0) // 1000
+                tracks.append({
+                    "title": t_name,
+                    "artist": t_artists,
+                    "duration": t_dur,
+                    "thumbnail_url": thumb,
+                })
+
+        if tracks:
+            logger.info(f"spotapi successfully fetched {len(tracks)} tracks for playlist {item_id}")
+            return {
+                "platform": "spotify",
+                "type": "playlist",
+                "id": item_id,
+                "title": title,
+                "thumbnail_url": thumb,
+                "tracks": tracks,
+            }
+    except Exception as e:
+        logger.warning(f"spotapi playlist fetch failed: {e}")
+
+    return None
+
+
 def fetch_universal_metadata(url: str) -> Optional[Dict]:
     """
     Extracts metadata from Spotify, YouTube, JioSaavn, Apple Music, Wynk, or SoundCloud.
@@ -225,18 +272,23 @@ def fetch_universal_metadata(url: str) -> Optional[Dict]:
     platform = detect_platform(url)
 
     if platform == "spotify":
-        # Check if official Spotify API credentials exist in environment
+        parsed = parse_spotify_url(url)
+        # 1. Try spotapi pathfinder API (supports 100, 152, 500+ tracks without Spotify Premium)
+        if parsed and parsed[0] == "playlist":
+            spotapi_meta = fetch_spotify_via_spotapi(parsed[1])
+            if spotapi_meta and spotapi_meta.get("tracks"):
+                return spotapi_meta
+
+        # 2. Check if official Spotify API credentials exist in environment
         client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip() or os.getenv("SPOTIPY_CLIENT_ID", "").strip()
         client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip() or os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
 
-        if client_id and client_secret:
-            parsed = parse_spotify_url(url)
-            if parsed:
-                api_meta = fetch_spotify_via_api(parsed[0], parsed[1], client_id, client_secret)
-                if api_meta and api_meta.get("tracks"):
-                    return api_meta
+        if client_id and client_secret and parsed:
+            api_meta = fetch_spotify_via_api(parsed[0], parsed[1], client_id, client_secret)
+            if api_meta and api_meta.get("tracks"):
+                return api_meta
 
-        # Fallback to Embed Scraper (first 100 tracks)
+        # 3. Fallback to Embed Scraper (first 100 tracks)
         meta = fetch_spotify_embed_metadata(url)
         if meta:
             meta["platform"] = "spotify"
