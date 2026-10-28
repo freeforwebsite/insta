@@ -593,10 +593,12 @@ def download_song(
     thumbnail_url: Optional[str] = None,
     title: Optional[str] = None,
     artist: Optional[str] = None,
+    progress_callback: Optional[callable] = None,
 ) -> Optional[str]:
     """
     Downloads audio matching query using yt-dlp and ffmpeg, converting to MP3.
     Applies audio quality bitrate and embeds ID3 tags and album cover art.
+    Supports dynamic progress updates via progress_callback.
     """
     os.makedirs(output_dir, exist_ok=True)
     out_template = os.path.join(output_dir, f"{filename_prefix}%(title)s.%(ext)s")
@@ -624,6 +626,14 @@ def download_song(
             }
         },
     }
+
+    if progress_callback:
+        def hook(d):
+            try:
+                progress_callback(d)
+            except Exception:
+                pass
+        ydl_opts["progress_hooks"] = [hook]
 
     if query.startswith("http://") or query.startswith("https://"):
         search_target = query

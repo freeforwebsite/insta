@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import uuid
+import time
 import shutil
 import zipfile
 import urllib.parse
@@ -83,6 +84,44 @@ def create_zip_archive(files: List[str], base_name: str, output_dir: str) -> Opt
             if os.path.exists(file_path):
                 z.write(file_path, arcname=os.path.basename(file_path))
     return zip_path if os.path.exists(zip_path) else None
+
+
+def format_circle_progress(percent: float, frame_idx: int = 0) -> str:
+    """Returns a rotating circle gauge with percentage and bar."""
+    circle_frames = ["◐", "◓", "◑", "◒", "◔", "◕", "◖", "◗"]
+    symbol = circle_frames[frame_idx % len(circle_frames)]
+    filled = max(0, min(10, int(percent / 10)))
+    bar = "▰" * filled + "▱" * (10 - filled)
+    return f"{symbol} `[{bar}]` *{percent:.1f}%*"
+
+
+def format_bytes(b: float) -> str:
+    """Formats bytes into human readable size."""
+    if not b or b <= 0:
+        return "0.0 MB"
+    mb = b / (1024 * 1024)
+    if mb >= 1024:
+        return f"{mb / 1024:.2f} GB"
+    return f"{mb:.1f} MB"
+
+
+def format_time(seconds: float) -> str:
+    """Formats seconds into readable string."""
+    if not seconds or seconds < 0:
+        return "--:--"
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h > 0:
+        return f"{h}h {m:02d}m {s:02d}s"
+    return f"{m:02d}m {s:02d}s"
+
+
+async def safe_edit_message(msg, text: str, parse_mode=ParseMode.MARKDOWN):
+    """Safely edits a Telegram message, suppressing rate limit and identical content errors."""
+    try:
+        await msg.edit_text(text, parse_mode=parse_mode)
+    except Exception:
+        pass
 
 
 async def check_channel_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -444,9 +483,72 @@ async def process_single_track(
         except Exception as e:
             logger.warning(f"Cached send failed, falling back to fresh download: {e}")
 
-    # 2. Fresh download
-    await status_msg.edit_text(f"⏳ *Downloading ({quality}kbps):* `{song_title}`\n_Please wait a moment..._", parse_mode=ParseMode.MARKDOWN)
+    # 2. Fresh download with Live CinePrime Ultra-Engine
+    init_circle = format_circle_progress(0, 0)
+    await safe_edit_message(
+        status_msg,
+        f"╭────────────────────────────╮\n"
+        f"│   ⚡ *CinePrime Ultra-Engine*   │\n"
+        f"╰────────────────────────────╯\n\n"
+        f"{init_circle}\n"
+        f"🎵 *Song:* `{song_title}`\n"
+        f"👤 *Artist:* `{artist}`\n\n"
+        f"⏱️ *Estimate Time:* `Calculating...`\n"
+        f"📦 *Total Size:* `Fetching stream...`\n"
+        f"⚡ *Speed:* `Connecting...`\n"
+        f"⚙️ *Engine:* `yt-dlp v2024 • FFmpeg (Android Node)`\n"
+        f"🎧 *Target Quality:* `{quality}kbps MP3`"
+    )
     await message.chat.send_action(ChatAction.UPLOAD_VOICE)
+
+    loop = asyncio.get_running_loop()
+    last_edit = [0.0]
+    spinner_idx = [0]
+
+    def on_progress(d):
+        now = time.time()
+        if now - last_edit[0] < 1.8:
+            return
+        last_edit[0] = now
+        status = d.get("status")
+        if status == "downloading":
+            downloaded = d.get("downloaded_bytes", 0)
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            speed = d.get("speed") or 0
+            eta = d.get("eta") or 0
+            pct = (downloaded / total * 100) if total else 0
+            spinner_idx[0] += 1
+            circle = format_circle_progress(pct, spinner_idx[0])
+            eta_str = format_time(eta)
+            speed_str = f"{speed / (1024 * 1024):.1f} MB/s" if speed else "Calculating..."
+            dl_str = format_bytes(downloaded)
+            tot_str = format_bytes(total)
+            text = (
+                f"╭────────────────────────────╮\n"
+                f"│   ⚡ *CinePrime Ultra-Engine*   │\n"
+                f"╰────────────────────────────╯\n\n"
+                f"{circle}\n"
+                f"🎵 *Song:* `{song_title}`\n"
+                f"👤 *Artist:* `{artist}`\n\n"
+                f"⏱️ *Estimate Time:* `{eta_str}`\n"
+                f"📦 *Total Size:* `{dl_str} / {tot_str}`\n"
+                f"⚡ *Speed:* `{speed_str}`\n"
+                f"⚙️ *Engine:* `yt-dlp v2024 • FFmpeg (Android Node)`\n"
+                f"🎧 *Audio Bitrate:* `{quality}kbps MP3`"
+            )
+            asyncio.run_coroutine_threadsafe(safe_edit_message(status_msg, text), loop)
+        elif status == "finished":
+            text = (
+                f"╭────────────────────────────╮\n"
+                f"│   ⚡ *CinePrime Ultra-Engine*   │\n"
+                f"╰────────────────────────────╯\n\n"
+                f"⚙️ `[▰▰▰▰▰▰▰▰▰▰]` *100%*\n"
+                f"🎵 *Song:* `{song_title}`\n\n"
+                f"🎚️ *Processing:* `Converting to {quality}kbps MP3 via FFmpeg...`\n"
+                f"🎨 *Metadata:* `Embedding HD Album Art & ID3 Tags...`\n"
+                f"⚙️ *Engine:* `FFmpeg Audio Core`"
+            )
+            asyncio.run_coroutine_threadsafe(safe_edit_message(status_msg, text), loop)
 
     temp_folder = os.path.join(TEMP_BASE_DIR, str(uuid.uuid4()))
     try:
@@ -458,6 +560,7 @@ async def process_single_track(
             thumbnail_url=thumb_url,
             title=song_title,
             artist=artist,
+            progress_callback=on_progress,
         )
 
         if not mp3_path or not os.path.exists(mp3_path):
@@ -696,22 +799,66 @@ async def run_zip_delivery(
     temp_folder = os.path.join(TEMP_BASE_DIR, f"zip_{uuid.uuid4().hex[:8]}")
     os.makedirs(temp_folder, exist_ok=True)
 
-    progress_msg = await query.message.reply_text(f"⏳ Starting download queue for {target_count} songs...")
+    progress_msg = await query.message.reply_text(f"⏳ Starting CinePrime Batch Engine for {target_count} songs...")
     downloaded_files = []
+    start_batch_time = time.time()
 
     for i, track in enumerate(tracks, start=1):
         song_title = track.get("title", "Unknown")
         artist = track.get("artist", "Unknown")
         query_text = track.get("url") or f"{artist} - {song_title}"
 
+        elapsed = time.time() - start_batch_time
+        avg_per_song = (elapsed / (i - 1)) if i > 1 else 6.0
+        rem_songs = target_count - (i - 1)
+        eta_batch = avg_per_song * rem_songs
+        batch_pct = ((i - 1) / target_count) * 100
+        circle = format_circle_progress(batch_pct, i)
+        collected_bytes = sum(os.path.getsize(f) for f in downloaded_files if os.path.exists(f))
+
         try:
-            await progress_msg.edit_text(
-                f"📥 *Downloading ({i}/{target_count}):*\n"
-                f"🎵 `{song_title}`\n"
-                f"👤 _{artist}_\n"
-                f"🎧 Quality: `{quality} kbps`",
-                parse_mode=ParseMode.MARKDOWN,
+            await safe_edit_message(
+                progress_msg,
+                f"╭───────────────────────────────╮\n"
+                f"│    ⚡ *CinePrime Batch Engine*    │\n"
+                f"╰───────────────────────────────╯\n\n"
+                f"{circle}\n"
+                f"📊 *Batch Progress:* `{i}/{target_count}` Songs Completed\n"
+                f"🎵 *Downloading:* `{song_title}`\n"
+                f"👤 *Artist:* `{artist}`\n\n"
+                f"⏱️ *Estimate Remaining:* `{format_time(eta_batch)}`\n"
+                f"📦 *Total Size:* `{format_bytes(collected_bytes)}`\n"
+                f"⚙️ *Engine:* `yt-dlp Multi-Stream • FFmpeg Core (Android Node)`\n"
+                f"🎧 *Bitrate Target:* `{quality}kbps MP3`"
             )
+
+            loop = asyncio.get_running_loop()
+            last_inner = [0.0]
+
+            def on_inner(d):
+                now = time.time()
+                if now - last_inner[0] < 2.0:
+                    return
+                last_inner[0] = now
+                if d.get("status") == "downloading":
+                    speed = d.get("speed") or 0
+                    speed_str = f"{speed / (1024 * 1024):.1f} MB/s" if speed else "Calculating..."
+                    cur_dl = d.get("downloaded_bytes", 0)
+                    cur_tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                    text = (
+                        f"╭───────────────────────────────╮\n"
+                        f"│    ⚡ *CinePrime Batch Engine*    │\n"
+                        f"╰───────────────────────────────╯\n\n"
+                        f"{circle}\n"
+                        f"📊 *Batch Progress:* `{i}/{target_count}` Songs Completed\n"
+                        f"🎵 *Downloading:* `{song_title}`\n"
+                        f"👤 *Artist:* `{artist}`\n\n"
+                        f"⚡ *Stream Speed:* `{speed_str}`\n"
+                        f"📦 *Track Size:* `{format_bytes(cur_dl)} / {format_bytes(cur_tot)}`\n"
+                        f"⏱️ *Batch Remaining:* `{format_time(eta_batch)}`\n"
+                        f"⚙️ *Engine:* `yt-dlp Multi-Stream • FFmpeg (Android Node)`"
+                    )
+                    asyncio.run_coroutine_threadsafe(safe_edit_message(progress_msg, text), loop)
 
             mp3_path = await asyncio.to_thread(
                 download_song,
@@ -723,6 +870,7 @@ async def run_zip_delivery(
                 thumbnail_url=track.get("thumbnail_url") or thumb_url,
                 title=song_title,
                 artist=artist,
+                progress_callback=on_inner,
             )
             if mp3_path and os.path.exists(mp3_path):
                 downloaded_files.append(mp3_path)
@@ -832,12 +980,50 @@ async def run_single_delivery(
                 await asyncio.sleep(0.4)
                 continue
 
-            # 2. Fresh download
-            await progress_msg.edit_text(
-                f"📥 *Downloading ({i}/{target_count}):*\n🎵 `{song_title}`\n👤 _{artist}_\n🎧 Quality: `{quality} kbps`",
-                parse_mode=ParseMode.MARKDOWN,
+            # 2. Fresh download with live engine stats
+            circle = format_circle_progress(((i - 1) / target_count) * 100, i)
+            await safe_edit_message(
+                progress_msg,
+                f"╭───────────────────────────────╮\n"
+                f"│    ⚡ *CinePrime Ultra-Engine*    │\n"
+                f"╰───────────────────────────────╯\n\n"
+                f"{circle}\n"
+                f"📊 *Delivering:* `{i}/{target_count}` Singles\n"
+                f"🎵 *Downloading:* `{song_title}`\n"
+                f"👤 *Artist:* `{artist}`\n\n"
+                f"⚙️ *Engine:* `yt-dlp v2024 • FFmpeg Core (Android Node)`\n"
+                f"🎧 *Audio Bitrate:* `{quality}kbps MP3`"
             )
             await query.message.chat.send_action(ChatAction.UPLOAD_VOICE)
+
+            loop = asyncio.get_running_loop()
+            last_inner = [0.0]
+
+            def on_single_progress(d):
+                now = time.time()
+                if now - last_inner[0] < 2.0:
+                    return
+                last_inner[0] = now
+                if d.get("status") == "downloading":
+                    speed = d.get("speed") or 0
+                    speed_str = f"{speed / (1024 * 1024):.1f} MB/s" if speed else "Calculating..."
+                    cur_dl = d.get("downloaded_bytes", 0)
+                    cur_tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                    eta = d.get("eta") or 0
+                    text = (
+                        f"╭───────────────────────────────╮\n"
+                        f"│    ⚡ *CinePrime Ultra-Engine*    │\n"
+                        f"╰───────────────────────────────╯\n\n"
+                        f"{circle}\n"
+                        f"📊 *Delivering:* `{i}/{target_count}` Singles\n"
+                        f"🎵 *Downloading:* `{song_title}`\n"
+                        f"👤 *Artist:* `{artist}`\n\n"
+                        f"⏱️ *Estimate Time:* `{format_time(eta)}`\n"
+                        f"📦 *Track Size:* `{format_bytes(cur_dl)} / {format_bytes(cur_tot)}`\n"
+                        f"⚡ *Speed:* `{speed_str}`\n"
+                        f"⚙️ *Engine:* `yt-dlp v2024 • FFmpeg (Android Node)`"
+                    )
+                    asyncio.run_coroutine_threadsafe(safe_edit_message(progress_msg, text), loop)
 
             mp3_path = await asyncio.to_thread(
                 download_song,
@@ -849,6 +1035,7 @@ async def run_single_delivery(
                 thumbnail_url=t_thumb,
                 title=song_title,
                 artist=artist,
+                progress_callback=on_single_progress,
             )
 
             if mp3_path and os.path.exists(mp3_path):
