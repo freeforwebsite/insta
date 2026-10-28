@@ -20,6 +20,7 @@ from telegram import (
     InputTextMessageContent,
 )
 from telegram.constants import ParseMode, ChatAction
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -107,8 +108,10 @@ def create_zip_archive(files: List[str], base_name: str, output_dir: str) -> Opt
         for file_path in files:
             if os.path.exists(file_path):
                 base = os.path.basename(file_path)
-                name, ext = os.path.splitext(base)
-                branded_name = f"{name} [CinePrime]{ext}" if "[CinePrime]" not in base else base
+                # Strip any leading numbers like 01_, 02., 03 -
+                clean_base = re.sub(r"^\d+[\s._-]+", "", base).strip()
+                name, ext = os.path.splitext(clean_base)
+                branded_name = f"{name} @CinePrimeMusicBot{ext}" if "@CinePrimeMusicBot" not in clean_base else clean_base
                 z.write(file_path, arcname=branded_name)
     return zip_path if os.path.exists(zip_path) else None
 
@@ -509,38 +512,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_to_database_channel(
     bot,
-    audio_file_id: str,
+    audio,
     song_title: str,
     artist: str,
     quality: str,
     query: str,
-    platform: str
+    platform: str,
+    filename: Optional[str] = None,
+    duration: int = 0,
+    movie: Optional[str] = None,
 ) -> Optional[int]:
     """
     Sends fresh song to the Database Channel (Strictly no duplicates).
-    Only the Admin in the database group sees the technical details.
+    Uses the exact user-specified CinePrime format:
+    🎵 **{Song Title}** ❤️
+    🎬 Movie: {Movie}
+    🎼 Composer: {Composer}
+    🎧 Quality: {Quality} kbps | MP3
+    📀 CinePrimeMusic 🎶
     """
     if not DUMP_CHANNEL_ID:
         return None
 
     try:
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        movie_title = movie or "CinePrime Hits"
         caption = (
-            f"🎵 *{song_title}*\n"
-            f"👤 *Artist:* {artist}\n"
-            f"🎧 *Quality:* {quality} kbps\n"
-            f"🌐 *Platform:* #{platform.capitalize()}\n"
-            f"🆔 *File ID:* `{audio_file_id}`\n"
-            f"📅 *Added:* {now_str}\n"
-            f"⚡ _CinePrime Database Archive_"
+            f"🎵 **{song_title}** ❤️\n"
+            f"🎬 Movie: {movie_title}\n"
+            f"🎼 Composer: {artist}\n"
+            f"🎧 Quality: {quality} kbps | MP3\n"
+            f"📀 CinePrimeMusic 🎶"
         )
         msg = await bot.send_audio(
             chat_id=DUMP_CHANNEL_ID,
-            audio=audio_file_id,
+            audio=audio,
+            filename=filename,
             title=song_title,
             performer=artist,
+            duration=duration,
             caption=caption,
             parse_mode=ParseMode.MARKDOWN,
+            read_timeout=120,
+            write_timeout=300,
         )
         logger.info(f"Posted to Database Channel: msg_id {msg.message_id}")
         return msg.message_id
@@ -569,7 +582,13 @@ async def process_single_track(
     if cached:
         try:
             await status_msg.edit_text("⚡ *Sending audio...*", parse_mode=ParseMode.MARKDOWN)
-            user_caption = f"🎵 *{cached['title']}*\n👤 {cached['artist']}\n🎧 {quality}kbps • @CinePrimeMusicBot\n📢 @cineprimehub"
+            user_caption = (
+                f"🎵 **{cached['title']}** ❤️\n"
+                f"🎬 Movie: {cached.get('album') or 'CinePrime Hits'}\n"
+                f"🎼 Composer: {cached['artist']}\n"
+                f"🎧 Quality: {quality} kbps | MP3\n"
+                f"📀 CinePrimeMusic 🎶"
+            )
             await message.reply_audio(
                 audio=cached["file_id"],
                 title=cached["title"],
@@ -673,15 +692,26 @@ async def process_single_track(
 
         await status_msg.edit_text("📤 *Uploading audio to Telegram...*", parse_mode=ParseMode.MARKDOWN)
 
-        user_caption = f"🎵 *{song_title}*\n👤 {artist}\n🎧 {quality}kbps • @CinePrimeMusicBot\n📢 @cineprimehub"
+        movie_title = track.get("album") or track.get("movie") or "CinePrime Hits"
+        user_caption = (
+            f"🎵 **{song_title}** ❤️\n"
+            f"🎬 Movie: {movie_title}\n"
+            f"🎼 Composer: {artist}\n"
+            f"🎧 Quality: {quality} kbps | MP3\n"
+            f"📀 CinePrimeMusic 🎶"
+        )
+        base_name = os.path.basename(mp3_path)
         with open(mp3_path, "rb") as audio_file:
             sent_audio = await message.reply_audio(
                 audio=audio_file,
+                filename=base_name,
                 title=song_title,
                 performer=artist,
                 duration=track.get("duration", 0),
                 caption=user_caption,
                 parse_mode=ParseMode.MARKDOWN,
+                read_timeout=120,
+                write_timeout=300,
             )
 
         if sent_audio and sent_audio.audio:
@@ -689,7 +719,7 @@ async def process_single_track(
 
             # Send ONE copy to Database Channel (Strictly no duplicates)
             channel_msg_id = await send_to_database_channel(
-                bot, file_id, song_title, artist, quality, query, platform
+                bot, file_id, song_title, artist, quality, query, platform, filename=base_name, duration=track.get("duration", 0), movie=movie_title
             )
 
             # Save in MongoDB
@@ -976,7 +1006,7 @@ async def run_zip_delivery(
                 download_song,
                 query=query_text,
                 output_dir=temp_folder,
-                filename_prefix=f"{i:02d}_",
+                filename_prefix="",
                 language=language,
                 quality=quality,
                 thumbnail_url=track.get("thumbnail_url") or thumb_url,
@@ -987,6 +1017,52 @@ async def run_zip_delivery(
             )
             if mp3_path and os.path.exists(mp3_path):
                 downloaded_files.append(mp3_path)
+
+                # Upload each song individually to Dump Channel (-1004177979820)
+                if DUMP_CHANNEL_ID:
+                    cached_check = get_cached_song(query_text, quality)
+                    try:
+                        base_name = os.path.basename(mp3_path)
+                        if cached_check and cached_check.get("file_id"):
+                            audio_payload = cached_check["file_id"]
+                        else:
+                            audio_payload = open(mp3_path, "rb")
+
+                        db_msg = await bot.send_audio(
+                            chat_id=DUMP_CHANNEL_ID,
+                            audio=audio_payload,
+                            filename=base_name,
+                            title=song_title,
+                            performer=artist,
+                            duration=track.get("duration", 0),
+                            caption=(
+                                f"🎵 **{song_title}** ❤️\n"
+                                f"🎬 Movie: {title or 'CinePrime Hits'}\n"
+                                f"🎼 Composer: {artist}\n"
+                                f"🎧 Quality: {quality} kbps | MP3\n"
+                                f"📀 CinePrimeMusic 🎶"
+                            ),
+                            parse_mode=ParseMode.MARKDOWN,
+                            read_timeout=120,
+                            write_timeout=300,
+                        )
+                        if hasattr(audio_payload, "close"):
+                            audio_payload.close()
+
+                        if db_msg and db_msg.audio and not cached_check:
+                            save_cached_song(
+                                query=query_text,
+                                file_id=db_msg.audio.file_id,
+                                title=song_title,
+                                artist=artist,
+                                duration=track.get("duration", 0),
+                                quality=quality,
+                                channel_message_id=db_msg.message_id,
+                                channel_id=str(DUMP_CHANNEL_ID),
+                            )
+                            logger.info(f"Uploaded batch track {i} to dump channel: {song_title}")
+                    except Exception as upload_err:
+                        logger.warning(f"Failed uploading track {i} to dump channel: {upload_err}")
         except Exception as e:
             logger.error(f"Error downloading {query_text}: {e}")
 
@@ -1152,7 +1228,7 @@ async def run_single_delivery(
                 download_song,
                 query=query_text,
                 output_dir=temp_folder,
-                filename_prefix=f"{i:02d}_",
+                filename_prefix="",
                 language=language,
                 quality=quality,
                 thumbnail_url=t_thumb,
@@ -1162,15 +1238,26 @@ async def run_single_delivery(
             )
 
             if mp3_path and os.path.exists(mp3_path):
-                user_caption = f"🎵 *{song_title}*\n👤 {artist} ({i}/{target_count})\n🎧 {quality}kbps • @CinePrimeMusicBot"
+                base_name = os.path.basename(mp3_path)
+                movie_title = track.get("album") or title or "CinePrime Hits"
+                user_caption = (
+                    f"🎵 **{song_title}** ❤️\n"
+                    f"🎬 Movie: {movie_title}\n"
+                    f"🎼 Composer: {artist}\n"
+                    f"🎧 Quality: {quality} kbps | MP3\n"
+                    f"📀 CinePrimeMusic 🎶"
+                )
                 with open(mp3_path, "rb") as audio_file:
                     sent = await query.message.reply_audio(
                         audio=audio_file,
+                        filename=base_name,
                         title=song_title,
                         performer=artist,
                         duration=track.get("duration", 0),
                         caption=user_caption,
                         parse_mode=ParseMode.MARKDOWN,
+                        read_timeout=120,
+                        write_timeout=300,
                     )
                 sent_count += 1
 
@@ -1178,7 +1265,7 @@ async def run_single_delivery(
                 if sent and sent.audio:
                     file_id = sent.audio.file_id
                     channel_msg_id = await send_to_database_channel(
-                        bot, file_id, song_title, artist, quality, query_text, platform
+                        bot, file_id, song_title, artist, quality, query_text, platform, filename=base_name, duration=track.get("duration", 0), movie=movie_title
                     )
 
                     # Save in MongoDB
@@ -1276,7 +1363,8 @@ def main():
         asyncio.set_event_loop(loop)
 
     print("Starting CinePrime Universal Music Bot...")
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    req = HTTPXRequest(read_timeout=120, write_timeout=300, connect_timeout=60)
+    app = ApplicationBuilder().token(BOT_TOKEN).request(req).build()
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))

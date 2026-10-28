@@ -649,9 +649,11 @@ def download_from_saavn_cdn(
         cdn_url = raw_cdn.replace("_96.mp4", bitrate_suffix)
 
         os.makedirs(output_dir, exist_ok=True)
-        safe_name = re.sub(r'[\\/*?:"<>|]', "", title or clean_query)[:50].strip()
-        temp_mp4 = os.path.join(output_dir, f"{filename_prefix}{safe_name}_saavn.mp4")
-        final_mp3 = os.path.join(output_dir, f"{filename_prefix}{safe_name} @CinePrimeMusicBot.mp3")
+        raw_name = title or clean_query
+        clean_name = re.sub(r"^\d+[\s._-]+", "", raw_name).strip()
+        safe_name = re.sub(r'[\\/*?:"<>|]', "", clean_name)[:50].strip()
+        temp_mp4 = os.path.join(output_dir, f"{safe_name}_saavn.mp4")
+        final_mp3 = os.path.join(output_dir, f"{safe_name} @CinePrimeMusicBot.mp3")
 
         with requests.get(cdn_url, stream=True, timeout=15) as resp:
             if resp.status_code != 200:
@@ -806,17 +808,21 @@ def download_song(
                         except Exception:
                             pass
 
-                # Apply @CinePrimeMusicBot filename branding
+                # Apply clean filename without number tags (no 01_, 02_)
                 base_fname = os.path.basename(downloaded_mp3)
                 stem, ext = os.path.splitext(base_fname)
-                if "@CinePrimeMusicBot" not in stem:
-                    branded_fname = f"{stem} @CinePrimeMusicBot{ext}"
-                    branded_path = os.path.join(output_dir, branded_fname)
-                    try:
+                clean_stem = re.sub(r"^\d+[\s._-]+", "", stem).strip()
+                if "@CinePrimeMusicBot" not in clean_stem:
+                    branded_fname = f"{clean_stem} @CinePrimeMusicBot{ext}"
+                else:
+                    branded_fname = f"{clean_stem}{ext}"
+                branded_path = os.path.join(output_dir, branded_fname)
+                try:
+                    if downloaded_mp3 != branded_path:
                         os.rename(downloaded_mp3, branded_path)
-                        downloaded_mp3 = branded_path
-                    except Exception:
-                        pass
+                    downloaded_mp3 = branded_path
+                except Exception:
+                    pass
 
                 t_name = title or query
                 a_name = artist or "CinePrime Music"
