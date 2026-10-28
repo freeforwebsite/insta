@@ -4,6 +4,7 @@ import json
 import base64
 import logging
 import urllib.request
+import urllib.parse
 from typing import List, Dict, Optional, Tuple
 import requests
 import yt_dlp
@@ -584,6 +585,104 @@ def embed_metadata(mp3_path: str, title: str, artist: str, thumbnail_url: Option
         logger.warning(f"Failed to embed metadata with mutagen: {e}")
 
 
+def download_from_saavn_cdn(
+    query: str,
+    output_dir: str,
+    filename_prefix: str = "",
+    quality: str = "320",
+    title: Optional[str] = None,
+    artist: Optional[str] = None,
+    thumbnail_url: Optional[str] = None,
+    progress_callback: Optional[callable] = None,
+) -> Optional[str]:
+    """
+    Directly searches and downloads high-quality audio from JioSaavn CDN.
+    Completely bypasses YouTube bot verification on cloud servers (AWS EC2).
+    """
+    try:
+        from Crypto.Cipher import DES
+        import subprocess
+
+        clean_query = query.replace("audio", "").strip()
+        search_url = f"https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=3&p=1&q={urllib.parse.quote(clean_query)}"
+        r = requests.get(search_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+        if not r.ok:
+            return None
+        data = r.json()
+        results = data.get("results", [])
+        if not results:
+            return None
+
+        s = results[0]
+        enc_url = s.get("encrypted_media_url")
+        if not enc_url:
+            return None
+
+        cipher = DES.new(b"38346591", DES.MODE_ECB)
+        dec = cipher.decrypt(base64.b64decode(enc_url))
+        pad = dec[-1]
+        raw_cdn = dec[:-pad].decode("utf-8")
+
+        bitrate_suffix = "_320.mp4" if str(quality) in ["320", "256"] else "_160.mp4"
+        cdn_url = raw_cdn.replace("_96.mp4", bitrate_suffix)
+
+        os.makedirs(output_dir, exist_ok=True)
+        safe_name = re.sub(r'[\\/*?:"<>|]', "", title or clean_query)[:50].strip()
+        temp_mp4 = os.path.join(output_dir, f"{filename_prefix}{safe_name}_saavn.mp4")
+        final_mp3 = os.path.join(output_dir, f"{filename_prefix}{safe_name}.mp3")
+
+        with requests.get(cdn_url, stream=True, timeout=15) as resp:
+            if resp.status_code != 200:
+                cdn_url = raw_cdn.replace("_96.mp4", "_160.mp4")
+                resp = requests.get(cdn_url, stream=True, timeout=15)
+            if resp.status_code != 200:
+                return None
+
+            tot_bytes = int(resp.headers.get("content-length", 0))
+            dl_bytes = 0
+            with open(temp_mp4, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        f.write(chunk)
+                        dl_bytes += len(chunk)
+                        if progress_callback and tot_bytes:
+                            progress_callback({
+                                "status": "downloading",
+                                "downloaded_bytes": dl_bytes,
+                                "total_bytes": tot_bytes,
+                                "speed": 4 * 1024 * 1024,
+                                "eta": int((tot_bytes - dl_bytes) / (4 * 1024 * 1024)),
+                            })
+
+        if progress_callback:
+            progress_callback({"status": "finished", "total_bytes": tot_bytes})
+
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", "-i", temp_mp4,
+            "-b:a", f"{quality}k",
+            final_mp3
+        ]
+        res = subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.path.exists(temp_mp4):
+            try:
+                os.remove(temp_mp4)
+            except Exception:
+                pass
+
+        if res.returncode == 0 and os.path.exists(final_mp3):
+            t_name = title or s.get("title") or clean_query
+            a_name = artist or s.get("singers") or "CinePrime Music"
+            t_thumb = thumbnail_url or s.get("image", "").replace("150x150", "500x500")
+            embed_metadata(final_mp3, t_name, a_name, t_thumb)
+            logger.info(f"Successfully downloaded from JioSaavn CDN: {t_name}")
+            return final_mp3
+
+    except Exception as e:
+        logger.warning(f"JioSaavn CDN download failed for {query}: {e}")
+
+    return None
+
+
 def download_song(
     query: str,
     output_dir: str,
@@ -600,6 +699,21 @@ def download_song(
     Applies audio quality bitrate and embeds ID3 tags and album cover art.
     Supports dynamic progress updates via progress_callback.
     """
+    # 1. Primary engine: JioSaavn CDN direct download (bypasses YouTube datacenter blocks)
+    if not (query.startswith("http://") or query.startswith("https://")):
+        saavn_mp3 = download_from_saavn_cdn(
+            query=query,
+            output_dir=output_dir,
+            filename_prefix=filename_prefix,
+            quality=quality,
+            title=title,
+            artist=artist,
+            thumbnail_url=thumbnail_url,
+            progress_callback=progress_callback,
+        )
+        if saavn_mp3 and os.path.exists(saavn_mp3):
+            return saavn_mp3
+
     os.makedirs(output_dir, exist_ok=True)
     out_template = os.path.join(output_dir, f"{filename_prefix}%(title)s.%(ext)s")
 
