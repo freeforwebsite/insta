@@ -618,6 +618,11 @@ def download_song(
         "noplaylist": True,
         "socket_timeout": 30,
         "retries": 3,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios"]
+            }
+        },
     }
 
     if query.startswith("http://") or query.startswith("https://"):
