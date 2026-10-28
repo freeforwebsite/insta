@@ -178,6 +178,10 @@ def render_download_card(
         f"• Quality    : `{quality} kbps`\n"
         f"• Status     : `{status_label}`\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"⚖️ *LEGAL DISCLAIMER*\n"
+        f"• We do not store or host copyrighted media.\n"
+        f"• All audio is streamed from public online sources.\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"       *Powered by @CinePrimeMusicBot*\n"
         f"╰━━━━━━━━━━━━━━━━━━━━━━━━╯"
     )
@@ -877,8 +881,8 @@ async def run_zip_delivery(
     target_count = len(tracks)
     await edit_msg(
         query,
-        f"📦 *Preparing ZIP File ({quality}kbps) for {target_count} songs from* `{title}`...\n"
-        f"Downloading songs and embedding cover art tags.",
+        f"📦 *Preparing ZIP File ({quality}kbps) for {target_count} songs from* `{title}`...\n\n"
+        f"⚖️ *Disclaimer:* We do not host or store copyrighted media. All audio is fetched from public online sources for personal fair-use.",
     )
 
     temp_folder = os.path.join(TEMP_BASE_DIR, f"zip_{uuid.uuid4().hex[:8]}")
@@ -1040,7 +1044,11 @@ async def run_single_delivery(
 ):
     """Downloads and sends songs as single audio files with MongoDB caching & channel archive."""
     target_count = len(tracks)
-    await edit_msg(query, f"🎵 *Downloading {target_count} single songs ({quality}kbps) from* `{title}`...")
+    await edit_msg(
+        query,
+        f"🎵 *Starting download for {target_count} songs ({quality}kbps) from* `{title}`...\n\n"
+        f"⚖️ *Disclaimer:* We do not host or store copyrighted media. All audio is fetched from public online sources for personal fair-use.",
+    )
 
     temp_folder = os.path.join(TEMP_BASE_DIR, f"single_{uuid.uuid4().hex[:8]}")
     os.makedirs(temp_folder, exist_ok=True)
