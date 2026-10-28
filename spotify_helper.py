@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import base64
 import logging
 import urllib.request
 from typing import List, Dict, Optional, Tuple
@@ -62,22 +63,181 @@ def parse_spotify_url(url: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+def get_spotify_api_token(client_id: str, client_secret: str) -> Optional[str]:
+    """Generates an app access token from Spotify Web API."""
+    try:
+        auth_url = "https://accounts.spotify.com/api/token"
+        auth_header = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+        resp = requests.post(
+            auth_url,
+            headers={"Authorization": f"Basic {auth_header}"},
+            data={"grant_type": "client_credentials"},
+            timeout=10,
+        )
+        data = resp.json()
+        return data.get("access_token")
+    except Exception as e:
+        logger.error(f"Error getting Spotify API token: {e}")
+        return None
+
+
+def fetch_spotify_via_api(item_type: str, item_id: str, client_id: str, client_secret: str) -> Optional[Dict]:
+    """
+    Fetches ALL tracks from Spotify with full pagination (supports 100, 152, 500+ tracks).
+    """
+    token = get_spotify_api_token(client_id, client_secret)
+    if not token:
+        return None
+
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        if item_type == "track":
+            resp = requests.get(f"https://api.spotify.com/v1/tracks/{item_id}", headers=headers, timeout=10)
+            data = resp.json()
+            title = data.get("name", "Unknown Track")
+            artists = ", ".join(a.get("name", "") for a in data.get("artists", []))
+            duration = (data.get("duration_ms") or 0) // 1000
+            thumb = data.get("album", {}).get("images", [{}])[0].get("url")
+            return {
+                "platform": "spotify",
+                "type": "track",
+                "id": item_id,
+                "title": title,
+                "thumbnail_url": thumb,
+                "tracks": [{
+                    "title": title,
+                    "artist": artists,
+                    "duration": duration,
+                    "thumbnail_url": thumb,
+                }],
+            }
+
+        elif item_type == "playlist":
+            resp = requests.get(f"https://api.spotify.com/v1/playlists/{item_id}", headers=headers, timeout=10)
+            p_data = resp.json()
+            title = p_data.get("name", "Spotify Playlist")
+            thumb = p_data.get("images", [{}])[0].get("url") if p_data.get("images") else None
+
+            # Paginate through ALL tracks
+            tracks = []
+            next_url = f"https://api.spotify.com/v1/playlists/{item_id}/tracks?limit=100"
+            while next_url:
+                t_resp = requests.get(next_url, headers=headers, timeout=15)
+                t_data = t_resp.json()
+                for item in t_data.get("items", []):
+                    track = item.get("track")
+                    if not track:
+                        continue
+                    t_title = track.get("name", "Unknown Title")
+                    t_artists = ", ".join(a.get("name", "") for a in track.get("artists", []))
+                    t_dur = (track.get("duration_ms") or 0) // 1000
+                    t_thumb = track.get("album", {}).get("images", [{}])[0].get("url") if track.get("album", {}).get("images") else thumb
+                    tracks.append({
+                        "title": t_title,
+                        "artist": t_artists,
+                        "duration": t_dur,
+                        "thumbnail_url": t_thumb,
+                    })
+                next_url = t_data.get("next")
+
+            return {
+                "platform": "spotify",
+                "type": "playlist",
+                "id": item_id,
+                "title": title,
+                "thumbnail_url": thumb,
+                "tracks": tracks,
+            }
+
+        elif item_type == "album":
+            resp = requests.get(f"https://api.spotify.com/v1/albums/{item_id}", headers=headers, timeout=10)
+            a_data = resp.json()
+            title = a_data.get("name", "Spotify Album")
+            thumb = a_data.get("images", [{}])[0].get("url") if a_data.get("images") else None
+
+            tracks = []
+            next_url = f"https://api.spotify.com/v1/albums/{item_id}/tracks?limit=50"
+            while next_url:
+                t_resp = requests.get(next_url, headers=headers, timeout=15)
+                t_data = t_resp.json()
+                for track in t_data.get("items", []):
+                    t_title = track.get("name", "Unknown Title")
+                    t_artists = ", ".join(a.get("name", "") for a in track.get("artists", []))
+                    t_dur = (track.get("duration_ms") or 0) // 1000
+                    tracks.append({
+                        "title": t_title,
+                        "artist": t_artists,
+                        "duration": t_dur,
+                        "thumbnail_url": thumb,
+                    })
+                next_url = t_data.get("next")
+
+            return {
+                "platform": "spotify",
+                "type": "album",
+                "id": item_id,
+                "title": title,
+                "thumbnail_url": thumb,
+                "tracks": tracks,
+            }
+
+        elif item_type == "artist":
+            resp = requests.get(f"https://api.spotify.com/v1/artists/{item_id}", headers=headers, timeout=10)
+            art_data = resp.json()
+            title = art_data.get("name", "Spotify Artist")
+            thumb = art_data.get("images", [{}])[0].get("url") if art_data.get("images") else None
+
+            # Get Top Tracks
+            top_resp = requests.get(f"https://api.spotify.com/v1/artists/{item_id}/top-tracks?market=IN", headers=headers, timeout=10)
+            top_data = top_resp.json()
+            tracks = []
+            for track in top_data.get("tracks", []):
+                t_title = track.get("name", "Unknown Title")
+                t_artists = ", ".join(a.get("name", "") for a in track.get("artists", []))
+                t_dur = (track.get("duration_ms") or 0) // 1000
+                t_thumb = track.get("album", {}).get("images", [{}])[0].get("url") if track.get("album", {}).get("images") else thumb
+                tracks.append({
+                    "title": t_title,
+                    "artist": t_artists,
+                    "duration": t_dur,
+                    "thumbnail_url": t_thumb,
+                })
+
+            return {
+                "platform": "spotify",
+                "type": "artist",
+                "id": item_id,
+                "title": title,
+                "thumbnail_url": thumb,
+                "tracks": tracks,
+            }
+
+    except Exception as e:
+        logger.error(f"Error in Spotify API fetch: {e}")
+
+    return None
+
+
 def fetch_universal_metadata(url: str) -> Optional[Dict]:
     """
     Extracts metadata from Spotify, YouTube, JioSaavn, Apple Music, Wynk, or SoundCloud.
-    Returns:
-    {
-        'platform': str,
-        'type': 'track' | 'playlist' | 'album' | 'artist',
-        'title': str,
-        'thumbnail_url': str,
-        'tracks': List[Dict]
-    }
     """
     platform = detect_platform(url)
 
     if platform == "spotify":
-        meta = fetch_spotify_metadata(url)
+        # Check if official Spotify API credentials exist in environment
+        client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip() or os.getenv("SPOTIPY_CLIENT_ID", "").strip()
+        client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip() or os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
+
+        if client_id and client_secret:
+            parsed = parse_spotify_url(url)
+            if parsed:
+                api_meta = fetch_spotify_via_api(parsed[0], parsed[1], client_id, client_secret)
+                if api_meta and api_meta.get("tracks"):
+                    return api_meta
+
+        # Fallback to Embed Scraper (first 100 tracks)
+        meta = fetch_spotify_embed_metadata(url)
         if meta:
             meta["platform"] = "spotify"
         return meta
@@ -91,12 +251,11 @@ def fetch_universal_metadata(url: str) -> Optional[Dict]:
     if platform == "wynk":
         return fetch_wynk_metadata(url)
 
-    # Fallback to general yt-dlp extraction
     return fetch_ytdlp_metadata(url, "generic")
 
 
-def fetch_spotify_metadata(url: str) -> Optional[Dict]:
-    """Extracts metadata from Spotify embed."""
+def fetch_spotify_embed_metadata(url: str) -> Optional[Dict]:
+    """Extracts metadata from Spotify embed (capped at first 100 tracks by Spotify)."""
     parsed = parse_spotify_url(url)
     if not parsed:
         return None
@@ -176,7 +335,7 @@ def fetch_spotify_metadata(url: str) -> Optional[Dict]:
             "tracks": tracks,
         }
     except Exception as e:
-        logger.error(f"Error fetching Spotify metadata: {e}")
+        logger.error(f"Error fetching Spotify embed metadata: {e}")
         return None
 
 
@@ -256,7 +415,6 @@ def fetch_applemusic_metadata(url: str) -> Optional[Dict]:
         raw_title = m_title.group(1) if m_title else "Apple Music Track"
         thumb_url = m_image.group(1) if m_image else None
 
-        # Clean "Song Name by Artist on Apple Music"
         clean_title = re.sub(r"\s+on Apple\s*Music.*", "", raw_title).strip()
         parts = clean_title.split(" by ")
         if len(parts) == 2:
@@ -286,7 +444,6 @@ def fetch_applemusic_metadata(url: str) -> Optional[Dict]:
 def fetch_wynk_metadata(url: str) -> Optional[Dict]:
     """Extracts metadata from Wynk Music link."""
     try:
-        # Extract title slug from URL: /song/never-gonna-give-you-up/id
         m = re.search(r"wynk\.in/music/(?:song|album|playlist)/([a-zA-Z0-9-]+)", url)
         slug = m.group(1).replace("-", " ").title() if m else "Wynk Music Track"
 
@@ -411,7 +568,6 @@ def download_song(
         "retries": 3,
     }
 
-    # If it is a direct URL, use it; otherwise search YouTube Music
     if query.startswith("http://") or query.startswith("https://"):
         search_target = query
     else:
@@ -431,7 +587,6 @@ def download_song(
                     break
 
             if downloaded_mp3 and os.path.exists(downloaded_mp3):
-                # Clean up any leftover thumbnail files
                 for extra in os.listdir(output_dir):
                     if extra.startswith(filename_prefix) and not extra.lower().endswith(".mp3"):
                         try:
@@ -439,7 +594,6 @@ def download_song(
                         except Exception:
                             pass
 
-                # Embed cover art and tags
                 t_name = title or query
                 a_name = artist or "CinePrime Music"
                 embed_metadata(downloaded_mp3, t_name, a_name, thumbnail_url)
