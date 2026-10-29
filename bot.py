@@ -1019,10 +1019,10 @@ async def run_zip_delivery(
                 filename_prefix="",
                 language=language,
                 quality=quality,
-                thumbnail_url=track.get("thumbnail_url") or thumb_url,
+                thumbnail_url=track.get("thumbnail_url"),
                 title=song_title,
                 artist=artist,
-                album=title,
+                album=track.get("album") or title,
                 progress_callback=on_inner,
             )
             if mp3_path and os.path.exists(mp3_path):
@@ -1156,7 +1156,7 @@ async def run_single_delivery(
         song_title = track.get("title", "Unknown")
         artist = track.get("artist", "Unknown")
         query_text = track.get("url") or f"{artist} - {song_title}"
-        t_thumb = track.get("thumbnail_url") or thumb_url
+        t_thumb = track.get("thumbnail_url")
 
         try:
             # 1. Instant cache lookup

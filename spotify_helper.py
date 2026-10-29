@@ -243,11 +243,19 @@ def fetch_spotify_via_spotapi(item_id: str) -> Optional[Dict]:
                 artists_items = track_data.get("artists", {}).get("items", [])
                 t_artists = ", ".join(a.get("profile", {}).get("name", "") for a in artists_items)
                 t_dur = (track_data.get("trackDuration", {}).get("totalMilliseconds") or 0) // 1000
+
+                # Extract individual track's original album cover and album name
+                album_info = track_data.get("albumOfTrack", {})
+                album_sources = album_info.get("coverArt", {}).get("sources", [])
+                t_thumb = album_sources[-1].get("url") if album_sources else None
+                t_album = album_info.get("name")
+
                 tracks.append({
                     "title": t_name,
                     "artist": t_artists,
                     "duration": t_dur,
-                    "thumbnail_url": thumb,
+                    "thumbnail_url": t_thumb,
+                    "album": t_album,
                 })
 
         if tracks:
@@ -588,7 +596,17 @@ def embed_metadata(
         if thumbnail_url:
             try:
                 req = urllib.request.Request(thumbnail_url, headers={"User-Agent": "Mozilla/5.0"})
-                img_data = urllib.request.urlopen(req, timeout=5).read()
+                raw_data = urllib.request.urlopen(req, timeout=8).read()
+                try:
+                    from PIL import Image
+                    import io
+                    img = Image.open(io.BytesIO(raw_data)).convert("RGB")
+                    buf = io.BytesIO()
+                    img.save(buf, format="JPEG", quality=95)
+                    img_data = buf.getvalue()
+                except Exception:
+                    img_data = raw_data
+
                 audio.tags.add(
                     APIC(
                         encoding=3,
@@ -697,7 +715,8 @@ def download_from_saavn_cdn(
         if res.returncode == 0 and os.path.exists(final_mp3):
             t_name = title or s.get("song") or s.get("title") or clean_query
             a_name = artist or s.get("singers") or "CinePrime Music"
-            t_thumb = thumbnail_url or s.get("image", "").replace("150x150", "500x500")
+            saavn_thumb = (s.get("image") or "").replace("150x150", "500x500")
+            t_thumb = saavn_thumb or thumbnail_url
             alb_name = album or s.get("album") or "CinePrime Music"
             embed_metadata(final_mp3, t_name, a_name, t_thumb, album=alb_name)
             logger.info(f"Successfully downloaded from JioSaavn CDN with CinePrime branding: {t_name}")
@@ -825,7 +844,21 @@ def download_song(
 
                 t_name = title or query
                 a_name = artist or "CinePrime Music"
-                embed_metadata(downloaded_mp3, t_name, a_name, thumbnail_url, album=album)
+
+                # Extract the actual original video thumbnail from YouTube
+                yt_thumb = None
+                if info:
+                    if "entries" in info and info["entries"]:
+                        first_entry = info["entries"][0]
+                        yt_thumb = first_entry.get("thumbnail")
+                        vid_id = first_entry.get("id")
+                        if vid_id and not yt_thumb:
+                            yt_thumb = f"https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg"
+                    elif "thumbnail" in info:
+                        yt_thumb = info.get("thumbnail")
+
+                chosen_thumb = yt_thumb or thumbnail_url
+                embed_metadata(downloaded_mp3, t_name, a_name, chosen_thumb, album=album)
 
                 return downloaded_mp3
 
