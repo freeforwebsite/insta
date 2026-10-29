@@ -651,9 +651,10 @@ def download_from_saavn_cdn(
         os.makedirs(output_dir, exist_ok=True)
         raw_name = title or clean_query
         clean_name = re.sub(r"^\d+[\s._-]+", "", raw_name).strip()
-        safe_name = re.sub(r'[\\/*?:"<>|]', "", clean_name)[:50].strip()
+        clean_name = clean_name.replace("@CinePrimeMusicBot", "").replace("[CinePrime]", "").strip()
+        safe_name = re.sub(r'[\\/*?:"<>|]', "", clean_name)[:60].strip()
         temp_mp4 = os.path.join(output_dir, f"{safe_name}_saavn.mp4")
-        final_mp3 = os.path.join(output_dir, f"{safe_name} @CinePrimeMusicBot.mp3")
+        final_mp3 = os.path.join(output_dir, f"{safe_name}.mp3")
 
         with requests.get(cdn_url, stream=True, timeout=15) as resp:
             if resp.status_code != 200:
@@ -808,19 +809,17 @@ def download_song(
                         except Exception:
                             pass
 
-                # Apply clean filename without number tags (no 01_, 02_)
+                # Apply clean normal filename (no numbers, no brand in song name)
                 base_fname = os.path.basename(downloaded_mp3)
                 stem, ext = os.path.splitext(base_fname)
                 clean_stem = re.sub(r"^\d+[\s._-]+", "", stem).strip()
-                if "@CinePrimeMusicBot" not in clean_stem:
-                    branded_fname = f"{clean_stem} @CinePrimeMusicBot{ext}"
-                else:
-                    branded_fname = f"{clean_stem}{ext}"
-                branded_path = os.path.join(output_dir, branded_fname)
+                clean_stem = clean_stem.replace("@CinePrimeMusicBot", "").replace("[CinePrime]", "").strip()
+                clean_fname = f"{clean_stem}{ext}"
+                clean_path = os.path.join(output_dir, clean_fname)
                 try:
-                    if downloaded_mp3 != branded_path:
-                        os.rename(downloaded_mp3, branded_path)
-                    downloaded_mp3 = branded_path
+                    if downloaded_mp3 != clean_path:
+                        os.rename(downloaded_mp3, clean_path)
+                    downloaded_mp3 = clean_path
                 except Exception:
                     pass
 

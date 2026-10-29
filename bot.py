@@ -75,11 +75,12 @@ def sanitize_filename(name: str) -> str:
 
 
 def create_zip_archive(files: List[str], base_name: str, output_dir: str) -> Optional[str]:
-    """Compresses all files into a single zip archive with CinePrime branding for cloud delivery."""
+    """Compresses all files into a single zip archive with CinePrime branding on the ZIP file name."""
     if not files:
         return None
     safe_name = sanitize_filename(base_name)
-    zip_path = os.path.join(output_dir, f"{safe_name}.zip")
+    zip_name = f"{safe_name} @CinePrimeMusicBot.zip" if "@CinePrimeMusicBot" not in safe_name else f"{safe_name}.zip"
+    zip_path = os.path.join(output_dir, zip_name)
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
         # Add CinePrime Brand Shortcuts and Info file
         z.writestr(
@@ -108,11 +109,12 @@ def create_zip_archive(files: List[str], base_name: str, output_dir: str) -> Opt
         for file_path in files:
             if os.path.exists(file_path):
                 base = os.path.basename(file_path)
-                # Strip any leading numbers like 01_, 02., 03 -
+                # Normal clean song name: no leading numbers, no brand in song filename
                 clean_base = re.sub(r"^\d+[\s._-]+", "", base).strip()
+                clean_base = clean_base.replace("@CinePrimeMusicBot", "").replace("[CinePrime]", "").strip()
                 name, ext = os.path.splitext(clean_base)
-                branded_name = f"{name} @CinePrimeMusicBot{ext}" if "@CinePrimeMusicBot" not in clean_base else clean_base
-                z.write(file_path, arcname=branded_name)
+                normal_name = f"{name.strip()}{ext}"
+                z.write(file_path, arcname=normal_name)
     return zip_path if os.path.exists(zip_path) else None
 
 
@@ -558,7 +560,7 @@ async def send_to_database_channel(
         logger.info(f"Posted to Database Channel: msg_id {msg.message_id}")
         return msg.message_id
     except Exception as e:
-        logger.warning(f"Failed posting to database channel: {e}")
+        logger.error(f"Failed posting to database channel: {e}", exc_info=True)
         return None
 
 
@@ -721,6 +723,12 @@ async def process_single_track(
             channel_msg_id = await send_to_database_channel(
                 bot, file_id, song_title, artist, quality, query, platform, filename=base_name, duration=track.get("duration", 0), movie=movie_title
             )
+            # If sending via file_id failed for any reason, upload the physical file directly
+            if not channel_msg_id and os.path.exists(mp3_path):
+                with open(mp3_path, "rb") as af_backup:
+                    channel_msg_id = await send_to_database_channel(
+                        bot, af_backup, song_title, artist, quality, query, platform, filename=base_name, duration=track.get("duration", 0), movie=movie_title
+                    )
 
             # Save in MongoDB
             save_cached_song(
@@ -895,7 +903,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 tracks_to_download = extra_songs[:target_count]
 
         if mode == "zip":
-            await run_zip_delivery(query, playlist_title, tracks_to_download, language, quality, thumb_url, platform)
+            await run_zip_delivery(query, playlist_title, tracks_to_download, language, quality, thumb_url, platform, context)
         else:
             await run_single_delivery(query, playlist_title, tracks_to_download, language, quality, thumb_url, context, platform)
 
@@ -920,9 +928,11 @@ async def run_zip_delivery(
     language: Optional[str] = None,
     quality: str = "192",
     thumb_url: Optional[str] = None,
-    platform: str = "music"
+    platform: str = "music",
+    context: Optional[ContextTypes.DEFAULT_TYPE] = None,
 ):
     """Downloads songs, packages into ZIP archive, and uploads to Cloud with failover."""
+    bot = context.bot if context else (query.bot if hasattr(query, "bot") else query.message._bot)
     target_count = len(tracks)
     await edit_msg(
         query,
@@ -1020,36 +1030,28 @@ async def run_zip_delivery(
 
                 # Upload each song individually to Dump Channel (-1004177979820)
                 if DUMP_CHANNEL_ID:
-                    cached_check = get_cached_song(query_text, quality)
                     try:
                         base_name = os.path.basename(mp3_path)
-                        if cached_check and cached_check.get("file_id"):
-                            audio_payload = cached_check["file_id"]
-                        else:
-                            audio_payload = open(mp3_path, "rb")
-
-                        db_msg = await bot.send_audio(
-                            chat_id=DUMP_CHANNEL_ID,
-                            audio=audio_payload,
-                            filename=base_name,
-                            title=song_title,
-                            performer=artist,
-                            duration=track.get("duration", 0),
-                            caption=(
-                                f"🎵 **{song_title}** ❤️\n"
-                                f"🎬 Movie: {title or 'CinePrime Hits'}\n"
-                                f"🎼 Composer: {artist}\n"
-                                f"🎧 Quality: {quality} kbps | MP3\n"
-                                f"📀 CinePrimeMusic 🎶"
-                            ),
-                            parse_mode=ParseMode.MARKDOWN,
-                            read_timeout=120,
-                            write_timeout=300,
-                        )
-                        if hasattr(audio_payload, "close"):
-                            audio_payload.close()
-
-                        if db_msg and db_msg.audio and not cached_check:
+                        with open(mp3_path, "rb") as af:
+                            db_msg = await bot.send_audio(
+                                chat_id=DUMP_CHANNEL_ID,
+                                audio=af,
+                                filename=base_name,
+                                title=song_title,
+                                performer=artist,
+                                duration=track.get("duration", 0),
+                                caption=(
+                                    f"🎵 **{song_title}** ❤️\n"
+                                    f"🎬 Movie: {title or 'CinePrime Hits'}\n"
+                                    f"🎼 Composer: {artist}\n"
+                                    f"🎧 Quality: {quality} kbps | MP3\n"
+                                    f"📀 CinePrimeMusic 🎶"
+                                ),
+                                parse_mode=ParseMode.MARKDOWN,
+                                read_timeout=120,
+                                write_timeout=300,
+                            )
+                        if db_msg and db_msg.audio:
                             save_cached_song(
                                 query=query_text,
                                 file_id=db_msg.audio.file_id,
@@ -1062,7 +1064,7 @@ async def run_zip_delivery(
                             )
                             logger.info(f"Uploaded batch track {i} to dump channel: {song_title}")
                     except Exception as upload_err:
-                        logger.warning(f"Failed uploading track {i} to dump channel: {upload_err}")
+                        logger.error(f"Failed uploading track {i} to dump channel: {upload_err}", exc_info=True)
         except Exception as e:
             logger.error(f"Error downloading {query_text}: {e}")
 
@@ -1267,6 +1269,11 @@ async def run_single_delivery(
                     channel_msg_id = await send_to_database_channel(
                         bot, file_id, song_title, artist, quality, query_text, platform, filename=base_name, duration=track.get("duration", 0), movie=movie_title
                     )
+                    if not channel_msg_id and os.path.exists(mp3_path):
+                        with open(mp3_path, "rb") as af_backup:
+                            channel_msg_id = await send_to_database_channel(
+                                bot, af_backup, song_title, artist, quality, query_text, platform, filename=base_name, duration=track.get("duration", 0), movie=movie_title
+                            )
 
                     # Save in MongoDB
                     save_cached_song(
