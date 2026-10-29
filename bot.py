@@ -985,18 +985,19 @@ async def run_zip_delivery(
 
             def on_inner(d):
                 now = time.time()
-                if now - last_inner[0] < 2.0:
+                if now - last_inner[0] < 1.8:
                     return
                 last_inner[0] = now
                 if d.get("status") == "downloading":
                     speed = d.get("speed") or 0
                     cur_dl = d.get("downloaded_bytes", 0)
                     cur_tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                    pct = (cur_dl / cur_tot * 100) if cur_tot else batch_pct
+                    track_fraction = (cur_dl / cur_tot) if cur_tot and cur_tot > 0 else 0.0
+                    overall_pct = min(99.0, (((i - 1) + track_fraction) / target_count) * 100.0)
                     inner_card = render_download_card(
                         title=song_title,
                         artist=artist,
-                        percent=pct,
+                        percent=overall_pct,
                         downloaded_bytes=collected_bytes + cur_dl,
                         total_bytes=collected_bytes * (target_count / i) if i > 0 else cur_tot,
                         speed_bytes=speed,
@@ -1004,7 +1005,7 @@ async def run_zip_delivery(
                         elapsed_seconds=now - start_batch_time,
                         platform=platform,
                         quality=quality,
-                        status_label=f"Streaming Track {i}/{target_count}",
+                        status_label=f"Downloading ({i}/{target_count})...",
                         spinner_idx=i + int(now) % 8,
                         is_batch=True,
                         current_idx=i,
@@ -1200,7 +1201,7 @@ async def run_single_delivery(
 
             def on_single_progress(d):
                 now = time.time()
-                if now - last_inner[0] < 2.0:
+                if now - last_inner[0] < 1.8:
                     return
                 last_inner[0] = now
                 if d.get("status") == "downloading":
@@ -1208,11 +1209,12 @@ async def run_single_delivery(
                     cur_dl = d.get("downloaded_bytes", 0)
                     cur_tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                     eta = d.get("eta") or 0
-                    pct = (cur_dl / cur_tot * 100) if cur_tot else 0
+                    track_fraction = (cur_dl / cur_tot) if cur_tot and cur_tot > 0 else 0.0
+                    overall_pct = min(99.0, (((i - 1) + track_fraction) / target_count) * 100.0)
                     inner_card = render_download_card(
                         title=song_title,
                         artist=artist,
-                        percent=pct,
+                        percent=overall_pct,
                         downloaded_bytes=cur_dl,
                         total_bytes=cur_tot,
                         speed_bytes=speed,
@@ -1222,7 +1224,9 @@ async def run_single_delivery(
                         quality=quality,
                         status_label=f"Downloading ({i}/{target_count})...",
                         spinner_idx=i + int(now) % 8,
-                        is_batch=False,
+                        is_batch=True,
+                        current_idx=i,
+                        total_idx=target_count,
                     )
                     asyncio.run_coroutine_threadsafe(safe_edit_message(progress_msg, inner_card), loop)
 
