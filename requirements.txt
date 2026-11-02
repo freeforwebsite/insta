@@ -7,3 +7,5 @@ requests>=2.31.0
 pycryptodome>=3.20.0
 spotapi>=1.2.7
 redis
+websockets
+tls-client
