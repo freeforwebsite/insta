@@ -1,0 +1,98 @@
+name: Spotify Playlist Cloud Downloader
+
+on:
+  workflow_dispatch:
+    inputs:
+      playlist_url:
+        description: "Spotify Playlist or Track URL"
+        required: true
+        default: "https://open.spotify.com/playlist/7eMHkKCKwelg7afYViQMAf"
+      part:
+        description: "Select Part (1 to 5, each ~1000 songs)"
+        required: true
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+          - "4"
+          - "5"
+          - "custom"
+        default: "1"
+      start_index:
+        description: "Custom Start Index (Only used if part is 'custom')"
+        required: false
+        default: "1"
+      end_index:
+        description: "Custom End Index (Only used if part is 'custom')"
+        required: false
+        default: "100"
+      quality:
+        description: "Audio Bitrate (kbps)"
+        required: true
+        type: choice
+        options:
+          - "320"
+          - "192"
+          - "128"
+        default: "320"
+
+jobs:
+  download-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 hours max
+
+    steps:
+      - name: Maximize Runner Disk Space
+        run: |
+          echo "Initial disk space:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force || true
+          echo "Cleaned disk space:"
+          df -h
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install spotapi mutagen yt-dlp requests syncedlyrics Pillow redis websockets tls-client
+
+      - name: Run Cloud Downloader & Upload to Gofile
+        id: run_dl
+        env:
+          PLAYLIST_URL: ${{ github.event.inputs.playlist_url }}
+          PART_NUMBER: ${{ github.event.inputs.part == 'custom' && '0' || github.event.inputs.part }}
+          START_INDEX: ${{ github.event.inputs.part == 'custom' && github.event.inputs.start_index || '0' }}
+          END_INDEX: ${{ github.event.inputs.part == 'custom' && github.event.inputs.end_index || '0' }}
+          QUALITY: ${{ github.event.inputs.quality }}
+          GOFILE_API_TOKEN: ${{ secrets.GOFILE_API_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python github_action_download.py
+
+      - name: Display Summary in GitHub Actions
+        if: always()
+        run: |
+          echo "### 🎵 Download Task Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Playlist:** \`${{ github.event.inputs.playlist_url }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Part:** \`${{ github.event.inputs.part }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Quality:** \`${{ github.event.inputs.quality }} kbps\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Gofile Link:** ${{ steps.run_dl.outputs.gofile_url }}" >> $GITHUB_STEP_SUMMARY
