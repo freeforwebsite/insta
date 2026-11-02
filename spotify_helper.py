@@ -664,6 +664,7 @@ def download_from_saavn_cdn(
     artist: Optional[str] = None,
     thumbnail_url: Optional[str] = None,
     album: Optional[str] = None,
+    duration: Optional[int] = None,
     progress_callback: Optional[callable] = None,
 ) -> Optional[str]:
     """
@@ -675,7 +676,7 @@ def download_from_saavn_cdn(
         import subprocess
 
         clean_query = query.replace("audio", "").strip()
-        search_url = f"https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=3&p=1&q={urllib.parse.quote(clean_query)}"
+        search_url = f"https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=5&p=1&q={urllib.parse.quote(clean_query)}"
         r = requests.get(search_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
         if not r.ok:
             return None
@@ -684,8 +685,22 @@ def download_from_saavn_cdn(
         if not results:
             return None
 
-        s = results[0]
-        enc_url = s.get("encrypted_media_url")
+        # Filter by duration if expected duration provided
+        chosen_s = None
+        if duration and duration > 30:
+            best_diff = 999999
+            for candidate in results:
+                c_dur = int(candidate.get("more_info", {}).get("duration", 0) or candidate.get("duration", 0) or 0)
+                if c_dur > 0:
+                    diff = abs(c_dur - duration)
+                    if diff < best_diff:
+                        best_diff = diff
+                        chosen_s = candidate
+        if not chosen_s:
+            chosen_s = results[0]
+
+        s = chosen_s
+        enc_url = s.get("encrypted_media_url") or s.get("more_info", {}).get("encrypted_media_url")
         if not enc_url:
             return None
 
@@ -769,6 +784,7 @@ def download_song(
     title: Optional[str] = None,
     artist: Optional[str] = None,
     album: Optional[str] = None,
+    duration: Optional[int] = None,
     progress_callback: Optional[callable] = None,
 ) -> Optional[str]:
     """
@@ -787,6 +803,7 @@ def download_song(
             artist=artist,
             thumbnail_url=thumbnail_url,
             album=album,
+            duration=duration,
             progress_callback=progress_callback,
         )
         if saavn_mp3 and os.path.exists(saavn_mp3):
@@ -808,7 +825,7 @@ def download_song(
         "writethumbnail": True,
         "quiet": True,
         "no_warnings": True,
-        "default_search": "ytsearch1",
+        "default_search": "ytsearch5",
         "noplaylist": True,
         "socket_timeout": 30,
         "retries": 3,
@@ -837,11 +854,38 @@ def download_song(
         search_target = query
     else:
         lang_tag = f" {language}" if language and language.lower() != "all" else ""
-        search_target = f"ytsearch1:{query}{lang_tag} audio"
+        search_target = f"ytsearch5:{query}{lang_tag} audio"
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(search_target, download=True)
+            # First extract top candidate search entries to pick the best duration match
+            best_entry = None
+            if search_target.startswith("ytsearch"):
+                search_data = ydl.extract_info(search_target, download=False)
+                if search_data and "entries" in search_data and search_data["entries"]:
+                    candidates = [c for c in search_data["entries"] if c]
+                    if candidates:
+                        if duration and duration > 30:
+                            def score_candidate(c):
+                                c_dur = c.get("duration", 0) or 0
+                                diff = abs(c_dur - duration)
+                                c_title = (c.get("title") or "").lower()
+                                penalty = 0
+                                for bad in ["remix", "short", "teaser", "promo", "status", "ringtone", "speed up", "slowed"]:
+                                    if bad in c_title and bad not in (title or "").lower():
+                                        penalty += 300
+                                return diff + penalty
+
+                            best_entry = min(candidates, key=score_candidate)
+                        else:
+                            best_entry = candidates[0]
+
+            if best_entry and best_entry.get("id"):
+                download_target = f"https://www.youtube.com/watch?v={best_entry['id']}"
+            else:
+                download_target = search_target
+
+            info = ydl.extract_info(download_target, download=True)
             if not info:
                 return None
 

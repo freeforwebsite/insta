@@ -812,6 +812,7 @@ async def process_single_track(
             title=song_title,
             artist=artist,
             album=track.get("album") or "CinePrime Music",
+            duration=track.get("duration"),
             progress_callback=on_progress,
         )
 
@@ -1151,6 +1152,7 @@ async def run_zip_delivery(
                 title=song_title,
                 artist=artist,
                 album=track.get("album") or title,
+                duration=track.get("duration"),
                 progress_callback=on_inner,
             )
             if mp3_path and os.path.exists(mp3_path):
@@ -1367,6 +1369,8 @@ async def run_single_delivery(
                 thumbnail_url=t_thumb,
                 title=song_title,
                 artist=artist,
+                album=track.get("album"),
+                duration=track.get("duration"),
                 progress_callback=on_single_progress,
             )
 

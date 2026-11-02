@@ -150,7 +150,8 @@ def main():
             thumbnail_url=t_thumb,
             title=t_title,
             artist=t_artist,
-            album=t_album
+            album=t_album,
+            duration=track.get("duration")
         )
         if res and os.path.exists(res):
             success_count += 1

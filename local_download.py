@@ -159,6 +159,8 @@ def main():
                 speed = d.get("_speed_str", "").strip()
                 print(f"       ⬇️  Progress: {pct} | Speed: {speed}", end="\r")
 
+        duration = track.get("duration")
+
         result = download_song(
             query=search_query,
             output_dir=str(target_dir),
@@ -167,6 +169,7 @@ def main():
             title=title,
             artist=artist,
             album=album,
+            duration=duration,
             progress_callback=on_progress
         )
 
