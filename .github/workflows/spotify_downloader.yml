@@ -12,15 +12,15 @@ on:
         required: true
         type: choice
         options:
-          - "test_5_songs"
           - "all"
+          - "test_5_songs"
           - "1"
           - "2"
           - "3"
           - "4"
           - "5"
           - "custom"
-        default: "test_5_songs"
+        default: "all"
       start_index:
         description: "Custom Start Index (Only used if part is 'custom')"
         required: false
