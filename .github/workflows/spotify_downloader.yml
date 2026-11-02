@@ -8,10 +8,11 @@ on:
         required: true
         default: "https://open.spotify.com/playlist/7eMHkKCKwelg7afYViQMAf"
       part:
-        description: "Select Part ('all' runs Parts 1-5 automatically while you sleep)"
+        description: "Select Part ('test_5_songs' for 30s quick check, 'all' for overnight)"
         required: true
         type: choice
         options:
+          - "test_5_songs"
           - "all"
           - "1"
           - "2"
@@ -19,7 +20,7 @@ on:
           - "4"
           - "5"
           - "custom"
-        default: "all"
+        default: "test_5_songs"
       start_index:
         description: "Custom Start Index (Only used if part is 'custom')"
         required: false
@@ -27,7 +28,7 @@ on:
       end_index:
         description: "Custom End Index (Only used if part is 'custom')"
         required: false
-        default: "100"
+        default: "5"
       quality:
         description: "Audio Bitrate (kbps)"
         required: true
@@ -49,6 +50,8 @@ jobs:
           PART="${{ github.event.inputs.part }}"
           if [ "$PART" = "all" ]; then
             echo 'parts=["1", "2", "3", "4", "5"]' >> $GITHUB_OUTPUT
+          elif [ "$PART" = "test_5_songs" ]; then
+            echo 'parts=["test_5_songs"]' >> $GITHUB_OUTPUT
           elif [ "$PART" = "custom" ]; then
             echo 'parts=["custom"]' >> $GITHUB_OUTPUT
           else
@@ -58,10 +61,10 @@ jobs:
   download-and-upload:
     needs: setup
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # 6 hours max per part
+    timeout-minutes: 360
     strategy:
-      max-parallel: 1 # Runs Part 1 -> Part 2 -> Part 3 -> Part 4 -> Part 5 sequentially overnight!
-      fail-fast: false # If one part encounters an issue, the other parts continue!
+      max-parallel: 1
+      fail-fast: false
       matrix:
         part: ${{ fromJson(needs.setup.outputs.parts) }}
 
@@ -115,9 +118,9 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           PLAYLIST_URL: ${{ github.event.inputs.playlist_url }}
-          PART_NUMBER: ${{ matrix.part == 'custom' && '0' || matrix.part }}
-          START_INDEX: ${{ matrix.part == 'custom' && github.event.inputs.start_index || '0' }}
-          END_INDEX: ${{ matrix.part == 'custom' && github.event.inputs.end_index || '0' }}
+          PART_NUMBER: ${{ (matrix.part == 'test_5_songs' || matrix.part == 'custom') && '0' || matrix.part }}
+          START_INDEX: ${{ matrix.part == 'test_5_songs' && '1' || (matrix.part == 'custom' && github.event.inputs.start_index || '0') }}
+          END_INDEX: ${{ matrix.part == 'test_5_songs' && '5' || (matrix.part == 'custom' && github.event.inputs.end_index || '0') }}
           QUALITY: ${{ github.event.inputs.quality }}
           GOFILE_API_TOKEN: ${{ secrets.GOFILE_API_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
