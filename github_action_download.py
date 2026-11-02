@@ -137,12 +137,14 @@ def main():
     print(f"[3/5] Downloading songs...")
     for i, track in enumerate(selected_tracks, start=start_idx):
         t_title = track.get("title", f"Track_{i}")
+        clean_name = re.split(r" - (?:Language|Film|Movie|Original|From)", t_title, flags=re.IGNORECASE)[0].strip()
         t_artist = track.get("artist", "")
+        first_singer = t_artist.split(",")[0].strip()
         t_album = track.get("album", "")
         t_thumb = track.get("thumbnail_url")
-        query = f"{t_title} {t_artist}".strip()
+        query = f"{clean_name} {first_singer}".strip()
 
-        print(f"[{i}/{end_idx}] Downloading: {t_artist} - {t_title}")
+        print(f"[{i}/{end_idx}] Downloading: {first_singer} - {clean_name}")
         res = download_song(
             query=query,
             output_dir=str(target_folder),

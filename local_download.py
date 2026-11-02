@@ -136,12 +136,14 @@ def main():
 
     for i, track in enumerate(selected_tracks, start=start_idx):
         title = track.get("title", f"Track_{i}")
+        clean_title = re.split(r" - (?:Language|Film|Movie|Original|From)", title, flags=re.IGNORECASE)[0].strip()
         artist = track.get("artist", "Unknown Artist")
+        first_singer = artist.split(",")[0].strip()
         album = track.get("album", "")
         thumbnail_url = track.get("thumbnail_url")
-        search_query = f"{title} {artist}".strip()
+        search_query = f"{clean_title} {first_singer}".strip()
 
-        clean_file_name = f"{sanitize_name(artist)} - {sanitize_name(title)}.mp3"
+        clean_file_name = f"{sanitize_name(first_singer)} - {sanitize_name(clean_title)}.mp3"
         dest_path = target_dir / clean_file_name
 
         if dest_path.exists() and dest_path.stat().st_size > 500000:

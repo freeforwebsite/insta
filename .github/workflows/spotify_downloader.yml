@@ -72,7 +72,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install spotapi mutagen yt-dlp requests syncedlyrics Pillow redis websockets tls-client
+          pip install -r requirements.txt pycryptodome pymongo syncedlyrics Pillow
 
       - name: Run Cloud Downloader & Upload to Gofile
         id: run_dl
