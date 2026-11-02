@@ -221,23 +221,47 @@ def fetch_spotify_via_api(item_type: str, item_id: str, client_id: str, client_s
     return None
 
 
-def fetch_spotify_via_spotapi(item_id: str) -> Optional[Dict]:
+def fetch_spotify_via_spotapi(item_id: str, max_tracks: Optional[int] = None) -> Optional[Dict]:
     """
-    Fetches ALL tracks from a Spotify playlist (100, 152, 500+ tracks)
-    using Spotify's public pathfinder GraphQL API via spotapi (no premium needed).
+    Fetches tracks from a Spotify playlist using Spotify's public pathfinder GraphQL API via spotapi.
+    Handles up to 4500+ tracks with pacing, retries, and chunking so Spotify never rate-limits.
     """
     try:
         import spotapi
+        import time
+
         p = spotapi.PublicPlaylist(item_id)
         info = p.get_playlist_info(limit=5)
         data = info.get("data", {}).get("playlistV2", {})
+        content = data.get("content", {})
+        total_count = content.get("totalCount", 0)
         title = data.get("name", "Spotify Playlist")
         images = data.get("images", {}).get("items", [])
         thumb = images[0].get("sources", [{}])[0].get("url") if images else None
 
+        target_total = min(total_count, max_tracks) if max_tracks else total_count
+        logger.info(f"spotapi: playlist has {total_count} total songs. Fetching up to {target_total or 'all'}...")
+
+        CHUNK_SIZE = 343
         tracks = []
-        for chunk in p.paginate_playlist():
-            for item in chunk.get("items", []):
+        offset = 0
+
+        while offset < (target_total or total_count or 1):
+            chunk_items = []
+            for attempt in range(3):
+                try:
+                    resp = p.get_playlist_info(limit=CHUNK_SIZE, offset=offset)
+                    chunk_items = resp.get("data", {}).get("playlistV2", {}).get("content", {}).get("items", [])
+                    if chunk_items:
+                        break
+                except Exception as err:
+                    logger.warning(f"spotapi chunk fetch retry at offset {offset} (attempt {attempt+1}/3): {err}")
+                    time.sleep(1.0 * (attempt + 1))
+
+            if not chunk_items:
+                break
+
+            for item in chunk_items:
                 track_data = item.get("itemV2", {}).get("data", {})
                 t_name = track_data.get("name")
                 if not t_name:
@@ -260,8 +284,14 @@ def fetch_spotify_via_spotapi(item_id: str) -> Optional[Dict]:
                     "album": t_album,
                 })
 
+                if target_total and len(tracks) >= target_total:
+                    break
+
+            offset += CHUNK_SIZE
+            time.sleep(0.35)  # Pacing between chunks to prevent Spotify 429 rate limiting
+
         if tracks:
-            logger.info(f"spotapi successfully fetched {len(tracks)} tracks for playlist {item_id}")
+            logger.info(f"spotapi successfully fetched {len(tracks)} of {total_count} tracks for playlist {item_id}")
             return {
                 "platform": "spotify",
                 "type": "playlist",
@@ -269,6 +299,7 @@ def fetch_spotify_via_spotapi(item_id: str) -> Optional[Dict]:
                 "title": title,
                 "thumbnail_url": thumb,
                 "tracks": tracks,
+                "total_count": total_count,
             }
     except Exception as e:
         logger.warning(f"spotapi playlist fetch failed: {e}")
@@ -276,7 +307,7 @@ def fetch_spotify_via_spotapi(item_id: str) -> Optional[Dict]:
     return None
 
 
-def fetch_universal_metadata(url: str) -> Optional[Dict]:
+def fetch_universal_metadata(url: str, max_tracks: Optional[int] = None) -> Optional[Dict]:
     """
     Extracts metadata from Spotify, YouTube, JioSaavn, Apple Music, Wynk, or SoundCloud.
     """
@@ -287,7 +318,7 @@ def fetch_universal_metadata(url: str) -> Optional[Dict]:
 
         # 1. For Playlists: spotapi GraphQL is the only engine that fetches full 4500+ tracks without user OAuth login
         if parsed and parsed[0] == "playlist":
-            spotapi_meta = fetch_spotify_via_spotapi(parsed[1])
+            spotapi_meta = fetch_spotify_via_spotapi(parsed[1], max_tracks=max_tracks)
             if spotapi_meta and spotapi_meta.get("tracks"):
                 return spotapi_meta
 

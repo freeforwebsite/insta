@@ -95,8 +95,15 @@ def main():
         sys.exit(1)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"[1/5] Fetching Spotify metadata: {playlist_url}")
-    metadata = fetch_universal_metadata(playlist_url)
+    if start_override > 0 and end_override > 0:
+        target_limit = end_override
+    elif part_num > 0:
+        target_limit = part_num * 1000
+    else:
+        target_limit = None
+
+    print(f"[1/5] Fetching Spotify metadata: {playlist_url} (batch target: {target_limit or 'all'})")
+    metadata = fetch_universal_metadata(playlist_url, max_tracks=target_limit)
 
     if not metadata or not metadata.get("tracks"):
         print("[!] Failed to fetch metadata. Exiting.")

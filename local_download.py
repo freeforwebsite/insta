@@ -46,8 +46,9 @@ def main():
         return
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    target_limit = (args.part * 1000) if args.part > 0 else (args.end if args.end > 0 else None)
     print(f"\n[1/3] 🔍 Fetching playlist metadata for: {url}")
-    metadata = fetch_universal_metadata(url)
+    metadata = fetch_universal_metadata(url, max_tracks=target_limit)
 
     if not metadata or not metadata.get("tracks"):
         print("[!] Failed to fetch playlist tracks. Please check your link.")
