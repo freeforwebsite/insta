@@ -379,6 +379,12 @@ async def metadata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_seconds = sum(t.get("duration", 0) for t in tracks)
     dur_str = format_time(total_seconds) if total_seconds > 0 else "Unknown"
 
+    # Calculate estimated sizes across 3 audio qualities
+    effective_seconds = total_seconds if total_seconds > 0 else total_count * 210
+    size_128 = format_bytes(effective_seconds * 16000)
+    size_192 = format_bytes(effective_seconds * 24000)
+    size_320 = format_bytes(effective_seconds * 40000)
+
     preview_lines = []
     for idx, t in enumerate(tracks[:10], start=1):
         s_dur = f" ({t['duration'] // 60}:{t['duration'] % 60:02d})" if t.get("duration") else ""
@@ -393,6 +399,10 @@ async def metadata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📁 *Type:* `{item_type}`\n"
         f"📊 *Total Songs:* `{total_count}`\n"
         f"⏱️ *Total Length:* `{dur_str}`\n\n"
+        f"💾 *Estimated Download Size:*\n"
+        f"• *128 kbps:* `~{size_128}`\n"
+        f"• *192 kbps:* `~{size_192}`\n"
+        f"• *320 kbps:* `~{size_320}`\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📑 *Tracklist Preview:*\n"
         + "\n".join(preview_lines) + more_text + "\n"
@@ -421,6 +431,7 @@ async def metadata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"==================================================\n"
             f"          {title.upper()} - TRACKLIST\n"
             f"          Total Songs: {total_count} | Duration: {dur_str}\n"
+            f"          Est. Size: 128k: ~{size_128} | 192k: ~{size_192} | 320k: ~{size_320}\n"
             f"          Source: {url}\n"
             f"==================================================\n\n"
         )
@@ -587,6 +598,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         total_tracks = len(tracks)
+        total_seconds = sum(t.get("duration", 0) for t in tracks)
+        dur_str = f" • ⏱️ `{format_time(total_seconds)}`" if total_seconds > 0 else ""
+        eff_sec = total_seconds if total_seconds > 0 else total_tracks * 210
+        s128 = format_bytes(eff_sec * 16000)
+        s192 = format_bytes(eff_sec * 24000)
+        s320 = format_bytes(eff_sec * 40000)
 
         # Build preview of first 4 songs
         preview_lines = []
@@ -598,7 +615,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         caption = (
             f"🎶 *{item_type.upper()}:* `{title}`\n"
-            f"📊 *Total Tracks:* `{total_tracks}`\n\n"
+            f"📊 *Total Tracks:* `{total_tracks}`{dur_str}\n"
+            f"💾 *Est. Size:* `128k: ~{s128}` | `192k: ~{s192}` | `320k: ~{s320}`\n\n"
             f"📜 *Preview:*\n{preview_text}\n\n"
             f"👇 *Step 1: Select how many songs & audio quality:*"
         )
