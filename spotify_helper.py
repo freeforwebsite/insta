@@ -285,7 +285,13 @@ def fetch_universal_metadata(url: str) -> Optional[Dict]:
     if platform == "spotify":
         parsed = parse_spotify_url(url)
 
-        # 1. Check if official Spotify Developer API credentials exist (fastest, full pagination, official HD art)
+        # 1. For Playlists: spotapi GraphQL is the only engine that fetches full 4500+ tracks without user OAuth login
+        if parsed and parsed[0] == "playlist":
+            spotapi_meta = fetch_spotify_via_spotapi(parsed[1])
+            if spotapi_meta and spotapi_meta.get("tracks"):
+                return spotapi_meta
+
+        # 2. For Tracks and Albums (or fallback): official Spotify Developer API credentials
         client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip() or os.getenv("SPOTIPY_CLIENT_ID", "").strip()
         client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip() or os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
 
@@ -293,12 +299,6 @@ def fetch_universal_metadata(url: str) -> Optional[Dict]:
             api_meta = fetch_spotify_via_api(parsed[0], parsed[1], client_id, client_secret)
             if api_meta and api_meta.get("tracks"):
                 return api_meta
-
-        # 2. Fallback to spotapi pathfinder API
-        if parsed and parsed[0] == "playlist":
-            spotapi_meta = fetch_spotify_via_spotapi(parsed[1])
-            if spotapi_meta and spotapi_meta.get("tracks"):
-                return spotapi_meta
 
         # 3. Fallback to Embed Scraper (first 100 tracks)
         meta = fetch_spotify_embed_metadata(url)
