@@ -8,17 +8,18 @@ on:
         required: true
         default: "https://open.spotify.com/playlist/7eMHkKCKwelg7afYViQMAf"
       part:
-        description: "Select Part (1 to 5, each ~1000 songs)"
+        description: "Select Part ('all' runs Parts 1-5 automatically while you sleep)"
         required: true
         type: choice
         options:
+          - "all"
           - "1"
           - "2"
           - "3"
           - "4"
           - "5"
           - "custom"
-        default: "1"
+        default: "all"
       start_index:
         description: "Custom Start Index (Only used if part is 'custom')"
         required: false
@@ -38,9 +39,33 @@ on:
         default: "320"
 
 jobs:
-  download-and-upload:
+  setup:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # 6 hours max
+    outputs:
+      parts: ${{ steps.set-parts.outputs.parts }}
+    steps:
+      - id: set-parts
+        run: |
+          PART="${{ github.event.inputs.part }}"
+          if [ "$PART" = "all" ]; then
+            echo 'parts=["1", "2", "3", "4", "5"]' >> $GITHUB_OUTPUT
+          elif [ "$PART" = "custom" ]; then
+            echo 'parts=["custom"]' >> $GITHUB_OUTPUT
+          else
+            echo "parts=[\"$PART\"]" >> $GITHUB_OUTPUT
+          fi
+
+  download-and-upload:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 hours max per part
+    strategy:
+      max-parallel: 1 # Runs Part 1 -> Part 2 -> Part 3 -> Part 4 -> Part 5 sequentially overnight!
+      fail-fast: false # If one part encounters an issue, the other parts continue!
+      matrix:
+        part: ${{ fromJson(needs.setup.outputs.parts) }}
+
+    name: Download Part ${{ matrix.part }}
 
     steps:
       - name: Maximize Runner Disk Space
@@ -89,9 +114,9 @@ jobs:
         id: run_dl
         env:
           PLAYLIST_URL: ${{ github.event.inputs.playlist_url }}
-          PART_NUMBER: ${{ github.event.inputs.part == 'custom' && '0' || github.event.inputs.part }}
-          START_INDEX: ${{ github.event.inputs.part == 'custom' && github.event.inputs.start_index || '0' }}
-          END_INDEX: ${{ github.event.inputs.part == 'custom' && github.event.inputs.end_index || '0' }}
+          PART_NUMBER: ${{ matrix.part == 'custom' && '0' || matrix.part }}
+          START_INDEX: ${{ matrix.part == 'custom' && github.event.inputs.start_index || '0' }}
+          END_INDEX: ${{ matrix.part == 'custom' && github.event.inputs.end_index || '0' }}
           QUALITY: ${{ github.event.inputs.quality }}
           GOFILE_API_TOKEN: ${{ secrets.GOFILE_API_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -104,6 +129,6 @@ jobs:
         run: |
           echo "### 🎵 Download Task Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Playlist:** \`${{ github.event.inputs.playlist_url }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Part:** \`${{ github.event.inputs.part }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Part:** \`${{ matrix.part }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Quality:** \`${{ github.event.inputs.quality }} kbps\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Gofile Link:** ${{ steps.run_dl.outputs.gofile_url }}" >> $GITHUB_STEP_SUMMARY
