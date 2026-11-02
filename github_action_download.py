@@ -38,44 +38,68 @@ def send_telegram_notification(message: str):
         print(f"[!] Failed to send Telegram notification: {e}")
 
 def upload_to_gofile(file_path: Path, token: str = "") -> dict:
-    """Uploads large file to Gofile API."""
-    print(f"\n[Gofile] Getting best upload server...")
-    try:
-        server_resp = requests.get("https://api.gofile.io/servers", timeout=30).json()
-        if server_resp.get("status") != "ok" or not server_resp.get("data", {}).get("servers"):
+    """Uploads large files (up to 10+ GB) using native streaming curl with live progress."""
+    import subprocess
+    import json
+    import re
+
+    size_mb = file_path.stat().st_size / (1024 * 1024)
+    print(f"\n[Gofile] Preparing streaming upload for {file_path.name} ({size_mb:.1f} MB)...")
+
+    for attempt in range(1, 3):
+        try:
+            server_resp = requests.get("https://api.gofile.io/servers", timeout=20).json()
+            servers = server_resp.get("data", {}).get("servers", [])
+            server = servers[0]["name"] if servers else "upload"
+        except Exception:
             server = "upload"
-        else:
-            server = server_resp["data"]["servers"][0]["name"]
-    except Exception:
-        server = "upload"
 
-    upload_url = f"https://{server}.gofile.io/uploadfile"
-    print(f"[Gofile] Uploading {file_path.name} ({file_path.stat().st_size / (1024*1024):.1f} MB) to {upload_url}...")
+        upload_url = f"https://{server}.gofile.io/uploadfile"
+        print(f"[Gofile] Attempt {attempt}: Uploading via streaming curl to {upload_url}...")
 
-    headers = {}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+        cmd = ["curl", "-#", "-F", f"file=@{file_path}"]
+        if token:
+            cmd.extend(["-H", f"Authorization: Bearer {token}"])
+        cmd.append(upload_url)
 
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+            raw_out = (proc.stdout or "").strip()
+
+            m = re.search(r'"downloadPage"\s*:\s*"(https://gofile\.io/d/[a-zA-Z0-9]+)"', raw_out)
+            if m:
+                dl_url = m.group(1)
+                print(f"[Gofile] Upload successful! URL: {dl_url}")
+                return {"url": dl_url}
+
+            try:
+                data = json.loads(raw_out)
+                if data.get("status") == "ok":
+                    dl_url = data.get("data", {}).get("downloadPage")
+                    file_id = data.get("data", {}).get("fileId")
+                    print(f"[Gofile] Upload successful! URL: {dl_url}")
+                    return {"url": dl_url, "fileId": file_id}
+            except Exception:
+                pass
+
+            print(f"[Gofile] Attempt {attempt} output: {raw_out[:200]}")
+        except Exception as e:
+            print(f"[Gofile] Attempt {attempt} failed: {e}")
+
+    # Fallback mirror: Pixeldrain (up to 10 GB)
+    print(f"\n[Fallback] Uploading {file_path.name} to Pixeldrain...")
     try:
-        with open(file_path, "rb") as f:
-            resp = requests.post(
-                upload_url,
-                files={"file": (file_path.name, f)},
-                headers=headers,
-                timeout=1800  # 30 minutes upload timeout
-            )
-        data = resp.json()
-        if data.get("status") == "ok":
-            dl_page = data.get("data", {}).get("downloadPage")
-            file_id = data.get("data", {}).get("fileId")
-            print(f"[Gofile] Upload successful! URL: {dl_page}")
-            return {"url": dl_page, "fileId": file_id}
-        else:
-            print(f"[Gofile] Upload returned status: {data}")
-            return {"error": data.get("message", "Upload error")}
-    except Exception as e:
-        print(f"[Gofile] Upload error: {e}")
-        return {"error": str(e)}
+        p_cmd = ["curl", "-#", "-T", str(file_path), f"https://pixeldrain.com/api/file/{file_path.name}"]
+        p_proc = subprocess.run(p_cmd, capture_output=True, text=True, timeout=1800)
+        p_data = json.loads(p_proc.stdout)
+        if p_data.get("success"):
+            p_url = f"https://pixeldrain.com/u/{p_data['id']}"
+            print(f"[Pixeldrain] Fallback upload successful! URL: {p_url}")
+            return {"url": p_url}
+    except Exception as pe:
+        print(f"[Pixeldrain] Fallback error: {pe}")
+
+    return {"error": "Upload failed on all mirrors"}
 
 def create_zip(folder_path: Path, zip_dest: Path):
     print(f"\n[Zip] Compressing folder '{folder_path.name}' into '{zip_dest.name}'...")
