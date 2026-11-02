@@ -74,6 +74,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pycryptodome pymongo syncedlyrics Pillow
 
+      - name: Setup YouTube Cookies (Optional)
+        if: ${{ secrets.YOUTUBE_COOKIES != '' }}
+        run: |
+          echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
+
       - name: Run Cloud Downloader & Upload to Gofile
         id: run_dl
         env:
