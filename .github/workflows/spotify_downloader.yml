@@ -75,9 +75,15 @@ jobs:
           pip install -r requirements.txt pycryptodome pymongo syncedlyrics Pillow
 
       - name: Setup YouTube Cookies (Optional)
-        if: ${{ secrets.YOUTUBE_COOKIES != '' }}
+        env:
+          YT_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
         run: |
-          echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
+          if [ -n "$YT_COOKIES" ]; then
+            echo "$YT_COOKIES" > cookies.txt
+            echo "Loaded cookies.txt from secrets."
+          else
+            echo "No YOUTUBE_COOKIES secret configured. Using direct JioSaavn CDN."
+          fi
 
       - name: Run Cloud Downloader & Upload to Gofile
         id: run_dl
