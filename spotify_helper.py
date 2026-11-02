@@ -10,7 +10,7 @@ import requests
 import yt_dlp
 import mutagen
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, TPE2, COMM, TPUB, TCOP, error
+from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, TPE2, COMM, TPUB, TCOP, USLT, error
 
 logger = logging.getLogger(__name__)
 
@@ -246,10 +246,10 @@ def fetch_spotify_via_spotapi(item_id: str) -> Optional[Dict]:
                 t_artists = ", ".join(a.get("profile", {}).get("name", "") for a in artists_items)
                 t_dur = (track_data.get("trackDuration", {}).get("totalMilliseconds") or 0) // 1000
 
-                # Extract individual track's original album cover and album name
+                # Extract individual track's original album cover (highest resolution 640x640) and album name
                 album_info = track_data.get("albumOfTrack", {})
                 album_sources = album_info.get("coverArt", {}).get("sources", [])
-                t_thumb = album_sources[-1].get("url") if album_sources else None
+                t_thumb = max(album_sources, key=lambda s: s.get("width", 0)).get("url") if album_sources else None
                 t_album = album_info.get("name")
 
                 tracks.append({
@@ -562,6 +562,18 @@ def fetch_more_artist_songs(artist_name: str, language: Optional[str] = None, co
     return songs
 
 
+def fetch_lyrics(title: str, artist: str) -> Optional[str]:
+    """Fetches synchronized or plain lyrics using syncedlyrics."""
+    try:
+        import syncedlyrics
+        lrc = syncedlyrics.search(f"{title} {artist}")
+        if lrc and len(lrc.strip()) > 10:
+            return lrc.strip()
+    except Exception as e:
+        logger.debug(f"Syncedlyrics lookup skipped for {title}: {e}")
+    return None
+
+
 def embed_metadata(
     mp3_path: str,
     title: str,
@@ -621,6 +633,22 @@ def embed_metadata(
                 )
             except Exception as e:
                 logger.warning(f"Could not download thumbnail for embedding: {e}")
+
+        # Fetch and embed synchronized scrolling lyrics (ID3 USLT tag)
+        lyrics_text = fetch_lyrics(title, artist)
+        if lyrics_text:
+            try:
+                audio.tags.add(
+                    USLT(
+                        encoding=3,
+                        lang="eng",
+                        desc="Lyrics",
+                        text=lyrics_text,
+                    )
+                )
+                logger.info(f"Embedded lyrics into: {mp3_path}")
+            except Exception as e:
+                logger.debug(f"Failed to embed lyrics tag: {e}")
 
         audio.save()
     except Exception as e:
