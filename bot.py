@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import io
 import uuid
 import time
 import shutil
@@ -333,6 +334,110 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(stats_text, parse_mode=ParseMode.MARKDOWN)
 
 
+async def metadata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fetches and displays metadata summary and downloadable tracklist for any music link."""
+    user = update.effective_user
+    if user:
+        log_user(user.id, user.first_name, user.username or "")
+
+    raw_text = update.message.text.strip()
+    url = ""
+    if context.args:
+        url = context.args[0].strip()
+    elif "-" in raw_text:
+        url = raw_text.split("-", 1)[1].strip()
+    elif "_" in raw_text and not raw_text.startswith("/md_"):
+        url = raw_text.split("_", 1)[1].strip()
+    elif len(raw_text.split(maxsplit=1)) > 1:
+        url = raw_text.split(maxsplit=1)[1].strip()
+
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        await update.message.reply_text(
+            "📋 *Music Metadata Inspector*\n\n"
+            "Use this command to inspect full details & complete tracklists of any playlist, album, or song:\n"
+            "👉 `/md <playlist_or_song_url>`\n"
+            "👉 `/md-<playlist_url>`\n\n"
+            "_Example:_\n"
+            "`/md https://open.spotify.com/playlist/...`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    status_msg = await update.message.reply_text("🔍 *Fetching full metadata & tracklist...*", parse_mode=ParseMode.MARKDOWN)
+    metadata = await asyncio.to_thread(fetch_universal_metadata, url)
+
+    if not metadata or not metadata.get("tracks"):
+        await status_msg.edit_text("❌ Failed to fetch metadata. Please verify the URL is public and try again.")
+        return
+
+    tracks = metadata["tracks"]
+    title = metadata.get("title", "Unknown")
+    platform = metadata.get("platform", "music").capitalize()
+    item_type = metadata.get("type", "playlist").capitalize()
+    total_count = len(tracks)
+
+    total_seconds = sum(t.get("duration", 0) for t in tracks)
+    dur_str = format_time(total_seconds) if total_seconds > 0 else "Unknown"
+
+    preview_lines = []
+    for idx, t in enumerate(tracks[:10], start=1):
+        s_dur = f" ({t['duration'] // 60}:{t['duration'] % 60:02d})" if t.get("duration") else ""
+        preview_lines.append(f"`{idx:02d}.` *{t.get('title')}* — _{t.get('artist')}_{s_dur}")
+
+    more_text = f"\n_...and {total_count - 10} more songs_" if total_count > 10 else ""
+
+    summary_text = (
+        f"╭━━━ 📋 *METADATA SUMMARY* ━━━╮\n\n"
+        f"🎵 *Title:* `{title}`\n"
+        f"🌐 *Platform:* `#{platform}`\n"
+        f"📁 *Type:* `{item_type}`\n"
+        f"📊 *Total Songs:* `{total_count}`\n"
+        f"⏱️ *Total Length:* `{dur_str}`\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📑 *Tracklist Preview:*\n"
+        + "\n".join(preview_lines) + more_text + "\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"⚡ _Powered by @CinePrimeMusicBot_"
+    )
+
+    session_id = str(uuid.uuid4())[:8]
+    context.user_data[session_id] = {
+        "title": title,
+        "type": metadata.get("type", "playlist"),
+        "tracks": tracks,
+        "url": url,
+        "thumbnail_url": metadata.get("thumbnail_url"),
+        "language": "all",
+        "quality": "320",
+        "platform": metadata.get("platform", "music"),
+    }
+    keyboard = build_count_keyboard(session_id, total_count, current_lang="all", current_quality="320")
+
+    await status_msg.edit_text(summary_text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
+
+    # Export full tracklist file if > 10 songs
+    if total_count > 10:
+        txt_content = (
+            f"==================================================\n"
+            f"          {title.upper()} - TRACKLIST\n"
+            f"          Total Songs: {total_count} | Duration: {dur_str}\n"
+            f"          Source: {url}\n"
+            f"==================================================\n\n"
+        )
+        for idx, t in enumerate(tracks, start=1):
+            s_dur = f" [{t['duration'] // 60}:{t['duration'] % 60:02d}]" if t.get("duration") else ""
+            txt_content += f"{idx:04d}. {t.get('title')} - {t.get('artist')}{s_dur}\n"
+
+        txt_bytes = io.BytesIO(txt_content.encode("utf-8"))
+        safe_fname = re.sub(r'[\\/*?:"<>|]', "", title)[:40].strip() or "tracklist"
+        txt_bytes.name = f"{safe_fname}_Tracklist.txt"
+        await update.message.reply_document(
+            document=txt_bytes,
+            caption=f"📄 Full tracklist with all `{total_count}` songs from *{title}*.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+
 def build_count_keyboard(
     session_id: str,
     total_tracks: int,
@@ -412,6 +517,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles incoming links from all music platforms."""
     user = update.effective_user
     text = update.message.text.strip()
+
+    if text.lower().startswith("/md"):
+        await metadata_command(update, context)
+        return
 
     if user:
         log_user(user.id, user.first_name, user.username or "")
@@ -1379,6 +1488,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("md", metadata_command))
     app.add_handler(CommandHandler("disclaimer", disclaimer_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
