@@ -113,6 +113,7 @@ jobs:
       - name: Run Cloud Downloader & Upload to Gofile
         id: run_dl
         env:
+          PYTHONUNBUFFERED: "1"
           PLAYLIST_URL: ${{ github.event.inputs.playlist_url }}
           PART_NUMBER: ${{ matrix.part == 'custom' && '0' || matrix.part }}
           START_INDEX: ${{ matrix.part == 'custom' && github.event.inputs.start_index || '0' }}
@@ -122,7 +123,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python github_action_download.py
+          python -u github_action_download.py
 
       - name: Display Summary in GitHub Actions
         if: always()
