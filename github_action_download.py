@@ -162,6 +162,15 @@ def main():
 
     print(f"\n[4/5] Download finished: {success_count} succeeded, {failed_count} failed.")
 
+    if success_count == 0:
+        print("[!] No songs were successfully downloaded. Aborting upload.")
+        send_telegram_notification(
+            f"❌ *{part_name} Failed!*\n\n"
+            f"🎵 *Playlist:* `{title}`\n"
+            f"⚠️ 0 songs were downloaded."
+        )
+        sys.exit(1)
+
     # Compress into ZIP
     zip_path = OUTPUT_DIR / f"{title}_{part_name} @CinePrimeMusicBot.zip"
     create_zip(target_folder, zip_path)
