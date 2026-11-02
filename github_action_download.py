@@ -140,9 +140,19 @@ def main():
 
     success_count = 0
     failed_count = 0
+    completed_count = 0
+    total_batch = len(selected_tracks)
+    parallel_workers = int(os.getenv("CONCURRENT_DOWNLOADS", "10"))
 
-    print(f"[3/5] Downloading songs...")
-    for i, track in enumerate(selected_tracks, start=start_idx):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    progress_lock = threading.Lock()
+
+    print(f"[3/5] Downloading songs in parallel ({parallel_workers} songs simultaneously)...")
+
+    def download_worker(item):
+        nonlocal completed_count, success_count, failed_count
+        i, track = item
         t_title = track.get("title", f"Track_{i}")
         clean_name = re.split(r" - (?:Language|Film|Movie|Original|From)", t_title, flags=re.IGNORECASE)[0].strip()
         t_artist = track.get("artist", "")
@@ -151,21 +161,36 @@ def main():
         t_thumb = track.get("thumbnail_url")
         query = f"{clean_name} {first_singer}".strip()
 
-        print(f"[{i}/{end_idx}] Downloading: {first_singer} - {clean_name}")
-        res = download_song(
-            query=query,
-            output_dir=str(target_folder),
-            quality=QUALITY,
-            thumbnail_url=t_thumb,
-            title=t_title,
-            artist=t_artist,
-            album=t_album,
-            duration=track.get("duration")
-        )
-        if res and os.path.exists(res):
-            success_count += 1
-        else:
-            failed_count += 1
+        try:
+            res = download_song(
+                query=query,
+                output_dir=str(target_folder),
+                quality=QUALITY,
+                thumbnail_url=t_thumb,
+                title=t_title,
+                artist=t_artist,
+                album=t_album,
+                duration=track.get("duration")
+            )
+            ok = bool(res and os.path.exists(res))
+        except Exception as e:
+            ok = False
+
+        with progress_lock:
+            completed_count += 1
+            if ok:
+                success_count += 1
+                icon = "✓"
+            else:
+                failed_count += 1
+                icon = "✗"
+            print(f"[{completed_count}/{total_batch}] {icon} ({first_singer}) {clean_name}")
+
+    track_items = list(enumerate(selected_tracks, start=start_idx))
+    with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+        futures = [executor.submit(download_worker, item) for item in track_items]
+        for f in as_completed(futures):
+            pass
 
     print(f"\n[4/5] Download finished: {success_count} succeeded, {failed_count} failed.")
 
