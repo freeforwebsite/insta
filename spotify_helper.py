@@ -133,11 +133,13 @@ def fetch_spotify_via_api(item_type: str, item_id: str, client_id: str, client_s
                     t_artists = ", ".join(a.get("name", "") for a in track.get("artists", []))
                     t_dur = (track.get("duration_ms") or 0) // 1000
                     t_thumb = track.get("album", {}).get("images", [{}])[0].get("url") if track.get("album", {}).get("images") else thumb
+                    t_album = track.get("album", {}).get("name")
                     tracks.append({
                         "title": t_title,
                         "artist": t_artists,
                         "duration": t_dur,
                         "thumbnail_url": t_thumb,
+                        "album": t_album,
                     })
                 next_url = t_data.get("next")
 
@@ -282,13 +284,8 @@ def fetch_universal_metadata(url: str) -> Optional[Dict]:
 
     if platform == "spotify":
         parsed = parse_spotify_url(url)
-        # 1. Try spotapi pathfinder API (supports 100, 152, 500+ tracks without Spotify Premium)
-        if parsed and parsed[0] == "playlist":
-            spotapi_meta = fetch_spotify_via_spotapi(parsed[1])
-            if spotapi_meta and spotapi_meta.get("tracks"):
-                return spotapi_meta
 
-        # 2. Check if official Spotify API credentials exist in environment
+        # 1. Check if official Spotify Developer API credentials exist (fastest, full pagination, official HD art)
         client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip() or os.getenv("SPOTIPY_CLIENT_ID", "").strip()
         client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip() or os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
 
@@ -296,6 +293,12 @@ def fetch_universal_metadata(url: str) -> Optional[Dict]:
             api_meta = fetch_spotify_via_api(parsed[0], parsed[1], client_id, client_secret)
             if api_meta and api_meta.get("tracks"):
                 return api_meta
+
+        # 2. Fallback to spotapi pathfinder API
+        if parsed and parsed[0] == "playlist":
+            spotapi_meta = fetch_spotify_via_spotapi(parsed[1])
+            if spotapi_meta and spotapi_meta.get("tracks"):
+                return spotapi_meta
 
         # 3. Fallback to Embed Scraper (first 100 tracks)
         meta = fetch_spotify_embed_metadata(url)
