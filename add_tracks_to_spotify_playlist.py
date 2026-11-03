@@ -36,6 +36,9 @@ def get_spotify_client():
         print("[!] Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET in .env file.")
         sys.exit(1)
 
+    print(f"🔑 App Client ID: {client_id[:8]}...{client_id[-6:]}")
+    print(f"🔗 Redirect URI:  {redirect_uri}")
+
     sp_oauth = SpotifyOAuth(
         client_id=client_id,
         client_secret=client_secret,
