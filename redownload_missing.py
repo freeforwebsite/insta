@@ -12,6 +12,13 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Set SKIP_LYRICS to prevent slow 10-second lrclib timeouts
 os.environ.setdefault("SKIP_LYRICS", "1")
 
