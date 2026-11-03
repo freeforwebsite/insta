@@ -867,7 +867,7 @@ def download_song(
     out_template = os.path.join(output_dir, f"{filename_prefix}%(title)s.%(ext)s")
 
     ydl_opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio/ba/b/best",
         "outtmpl": out_template,
         "postprocessors": [
             {

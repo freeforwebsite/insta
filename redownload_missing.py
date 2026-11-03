@@ -89,7 +89,12 @@ def main():
         nonlocal completed, succeeded, failed
         idx, track = item
         t_title = track.get("title", f"Track_{idx}")
-        clean_name = re.split(r" - (?:Language|Film|Movie|Original|From)", t_title, flags=re.IGNORECASE)[0].strip()
+        # Strip (From ...), (Form ...), (feat ...), quotes, brackets, and extra movie tags
+        clean_name = re.sub(r'[\(\[\{](?:From|Form|feat|with).*?[\)\]\}]', '', t_title, flags=re.IGNORECASE)
+        clean_name = re.split(r" - (?:Language|Film|Movie|Original|From)", clean_name, flags=re.IGNORECASE)[0]
+        clean_name = clean_name.replace('"', '').replace("'", "").replace(":", " ").strip()
+        clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+
         t_artist = track.get("artist", "")
         first_singer = t_artist.split(",")[0].strip()
         query = f"{clean_name} {first_singer}".strip()
