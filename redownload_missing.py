@@ -45,7 +45,7 @@ def main():
     parser.add_argument("--url", default=DEFAULT_URL, help="Spotify playlist URL")
     parser.add_argument("--folder", default=str(DEFAULT_FOLDER), help="Master folder with existing songs to filter against")
     parser.add_argument("--save-to", default=None, help="New folder to save downloaded songs (optional, keeps playlists separate)")
-    parser.add_argument("--limit", type=int, default=5000, help="Check up to song index (e.g. 5000 for all songs)")
+    parser.add_argument("--limit", type=int, default=10000, help="Check up to song index (e.g. 10000 for all songs)")
     parser.add_argument("--workers", type=int, default=10, help="Parallel download threads")
     parser.add_argument("--quality", default="320", help="Audio quality bitrate")
     args = parser.parse_args()
