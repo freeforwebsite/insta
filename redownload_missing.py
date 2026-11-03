@@ -12,6 +12,9 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
+# Set SKIP_LYRICS to prevent slow 10-second lrclib timeouts
+os.environ.setdefault("SKIP_LYRICS", "1")
+
 sys.path.insert(0, str(Path(__file__).parent))
 from spotify_helper import fetch_universal_metadata, download_song
 
@@ -34,7 +37,7 @@ def main():
     parser = argparse.ArgumentParser(description="Find and re-download missing Spotify songs.")
     parser.add_argument("--url", default=DEFAULT_URL, help="Spotify playlist URL")
     parser.add_argument("--folder", default=str(DEFAULT_FOLDER), help="Folder with already downloaded MP3s")
-    parser.add_argument("--limit", type=int, default=3000, help="Check up to song index (e.g. 3000 for Parts 1-3, or 4595 for all)")
+    parser.add_argument("--limit", type=int, default=5000, help="Check up to song index (e.g. 5000 for all 4,595 songs)")
     parser.add_argument("--workers", type=int, default=10, help="Parallel download threads")
     parser.add_argument("--quality", default="320", help="Audio quality bitrate")
     args = parser.parse_args()
