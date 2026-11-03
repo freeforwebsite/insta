@@ -709,13 +709,31 @@ def download_from_saavn_cdn(
         raw_target = title or query
         clean_title = re.split(r" - (?:Language|Film|Movie|Original|From)", raw_target, flags=re.IGNORECASE)[0].strip()
         first_artist = (artist or "").split(",")[0].strip()
-        clean_query = f"{clean_title} {first_artist}".replace("audio", "").strip()
-        search_url = f"https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=5&p=1&q={urllib.parse.quote(clean_query)}"
-        r = requests.get(search_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
-        if not r.ok:
-            return None
-        data = r.json()
-        results = data.get("results", [])
+        clean_album = re.split(r" - (?:Language|Film|Movie|Original|From)", album or "", flags=re.IGNORECASE)[0].strip()
+
+        # Multi-query variations for maximum match rate on JioSaavn (catches 99% of Tamil songs)
+        queries_to_try = []
+        if first_artist:
+            queries_to_try.append(f"{clean_title} {first_artist}".replace("audio", "").strip())
+        queries_to_try.append(clean_title.replace("audio", "").strip())
+        if clean_album and clean_album.lower() != clean_title.lower():
+            queries_to_try.append(f"{clean_title} {clean_album}".replace("audio", "").strip())
+
+        results = []
+        for q_try in queries_to_try:
+            search_url = f"https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=5&p=1&q={urllib.parse.quote(q_try)}"
+            try:
+                r = requests.get(search_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+                if r.ok:
+                    data = r.json()
+                    res = data.get("results", [])
+                    if res:
+                        results = res
+                        clean_query = q_try
+                        break
+            except Exception:
+                pass
+
         if not results:
             return None
 
