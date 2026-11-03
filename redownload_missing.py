@@ -25,7 +25,7 @@ os.environ.setdefault("SKIP_LYRICS", "1")
 sys.path.insert(0, str(Path(__file__).parent))
 from spotify_helper import fetch_universal_metadata, download_song
 
-DEFAULT_FOLDER = Path(r"D:\SpotifyMusic\Tamil All Time Hits (1980 to 2026) 345+hours and 4500+ songs\Tamil All Time Hits (1980 to 2026)-@CinePrimeMusicBot")
+DEFAULT_FOLDER = Path(r"D:\SpotifyMusic\Tamil All Time Hits (1980 to 2026) 345+hours and 4500+ songs\3643 songs")
 DEFAULT_URL = "https://open.spotify.com/playlist/7eMHkKCKwelg7afYViQMAf"
 
 def normalize_title(text: str) -> str:
