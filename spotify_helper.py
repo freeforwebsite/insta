@@ -595,6 +595,8 @@ def fetch_more_artist_songs(artist_name: str, language: Optional[str] = None, co
 
 def fetch_lyrics(title: str, artist: str) -> Optional[str]:
     """Fetches synchronized or plain lyrics using syncedlyrics."""
+    if os.getenv("SKIP_LYRICS", "0") == "1":
+        return None
     try:
         import syncedlyrics
         lrc = syncedlyrics.search(f"{title} {artist}")

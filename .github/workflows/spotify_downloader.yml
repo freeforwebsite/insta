@@ -124,6 +124,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           CONCURRENT_DOWNLOADS: "10"
+          SKIP_LYRICS: "1"
           PLAYLIST_URL: ${{ github.event.inputs.playlist_url }}
           PART_NUMBER: ${{ (matrix.part == 'test_5_songs' || matrix.part == 'custom') && '0' || matrix.part }}
           START_INDEX: ${{ matrix.part == 'test_5_songs' && '1' || (matrix.part == 'custom' && github.event.inputs.start_index || '0') }}
