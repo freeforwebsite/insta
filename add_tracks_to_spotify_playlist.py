@@ -115,6 +115,33 @@ def main():
     display_name = user_info.get("display_name", user_info["id"])
     print(f"✓ Successfully connected as: {display_name}!")
 
+    # Check tracks already inside the target playlist to prevent duplicate additions
+    print(f"Checking existing songs in your target Spotify playlist...")
+    already_in_target = set()
+    try:
+        results = sp.playlist_items(target_id, fields="items.track.uri,next", limit=100)
+        while results:
+            for item in results.get("items", []):
+                trk = item.get("track")
+                if trk and trk.get("uri"):
+                    already_in_target.add(trk["uri"])
+            if results.get("next"):
+                results = sp.next(results)
+            else:
+                break
+        print(f"✓ Found {len(already_in_target)} songs already in this playlist on Spotify.")
+    except Exception as e:
+        print(f"Note: {e}")
+
+    # Filter out tracks already in the playlist
+    track_uris = [u for u in track_uris if u not in already_in_target]
+    total_to_add = len(track_uris)
+    print(f"✨ Final New Tracks to Add to Spotify: {total_to_add}")
+
+    if total_to_add == 0:
+        print("🎉 All of these songs are already in your Spotify playlist! Nothing new to add.")
+        return
+
     # Add tracks in batches of 100
     batch_size = 100
     added = 0
