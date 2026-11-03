@@ -130,10 +130,8 @@ def fetch_existing_target_items(sp, target_id):
 
 def main():
     parser = argparse.ArgumentParser(description="Autonomous Tamil Multi-Playlist Continuous Filter & Pusher.")
-    parser.add_argument("--target", default=None, help="Target Spotify playlist ID (leave empty with --create-new to auto-create Vol 2)")
-    parser.add_argument("--create-new", action="store_true", help="Automatically create a new Volume playlist (e.g. Vol 2)")
-    parser.add_argument("--name", default="🎵 Tamil Songs 💖 | All Time Hits ✨ - Vol 2", help="Name for the new Volume playlist")
-    parser.add_argument("--filter-from", default=DEFAULT_TARGET_PLAYLIST, help="Previous volume playlist to filter against (prevents duplicates across volumes)")
+    parser.add_argument("--target", required=True, help="Target Spotify playlist ID or URL (e.g. your new Volume 2 playlist)")
+    parser.add_argument("--filter-from", default=DEFAULT_TARGET_PLAYLIST, help="Previous volume playlist to filter against (prevents duplicates from Volume 1)")
     parser.add_argument("--file", default=None, help="Optional text file with extra playlist URLs to scan (one per line)")
     args = parser.parse_args()
 
@@ -146,23 +144,14 @@ def main():
     print("👑 AUTONOMOUS TAMIL MEGA-PLAYLIST PUSHER (MULTI-VOLUME)")
     print(f"✓ Connected as: {display_name} (ID: {user_id})")
 
-    # If --create-new or target is None, create new volume playlist
-    if args.create_new or not args.target:
-        print(f"\nCreating new Volume playlist: '{args.name}'...")
-        desc = "The ultimate Tamil music collection 🎵 | All-In-One Master Archive (Vol 2)."
-        new_pl = sp.user_playlist_create(user=user_id, name=args.name, public=True, description=desc)
-        target_id = new_pl["id"]
-        target_url = new_pl.get("external_urls", {}).get("spotify", f"https://open.spotify.com/playlist/{target_id}")
-        print(f"✓ Created new Volume playlist: {target_url}")
-    else:
-        target_id = args.target
-        if "open.spotify.com" in target_id:
-            parsed = parse_spotify_url(target_id)
-            if parsed:
-                target_id = parsed[1]
-        target_url = f"https://open.spotify.com/playlist/{target_id}"
+    target_id = args.target
+    if "open.spotify.com" in target_id:
+        parsed = parse_spotify_url(target_id)
+        if parsed:
+            target_id = parsed[1]
+    target_url = f"https://open.spotify.com/playlist/{target_id}"
 
-    print(f"🎯 Target Playlist: {target_url}")
+    print(f"🎯 Target Playlist (Volume 2): {target_url}")
     print("=" * 70)
 
     # Gather all playlists to process
