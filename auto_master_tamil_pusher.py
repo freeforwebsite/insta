@@ -130,19 +130,39 @@ def fetch_existing_target_items(sp, target_id):
 
 def main():
     parser = argparse.ArgumentParser(description="Autonomous Tamil Multi-Playlist Continuous Filter & Pusher.")
-    parser.add_argument("--target", default=DEFAULT_TARGET_PLAYLIST, help="Target Spotify playlist ID")
+    parser.add_argument("--target", default=None, help="Target Spotify playlist ID (leave empty with --create-new to auto-create Vol 2)")
+    parser.add_argument("--create-new", action="store_true", help="Automatically create a new Volume playlist (e.g. Vol 2)")
+    parser.add_argument("--name", default="🎵 Tamil Songs 💖 | All Time Hits ✨ - Vol 2", help="Name for the new Volume playlist")
+    parser.add_argument("--filter-from", default=DEFAULT_TARGET_PLAYLIST, help="Previous volume playlist to filter against (prevents duplicates across volumes)")
     parser.add_argument("--file", default=None, help="Optional text file with extra playlist URLs to scan (one per line)")
     args = parser.parse_args()
 
-    target_id = args.target
-    if "open.spotify.com" in target_id:
-        parsed = parse_spotify_url(target_id)
-        if parsed:
-            target_id = parsed[1]
-
+    # Authenticate with Spotify
+    sp = get_spotify_client()
+    user_info = sp.current_user()
+    user_id = user_info["id"]
+    display_name = user_info.get("display_name", user_id)
     print("=" * 70)
-    print("👑 AUTONOMOUS TAMIL MEGA-PLAYLIST PUSHER & CONTINUOUS FILTER")
-    print(f"🎯 Target Playlist: https://open.spotify.com/playlist/{target_id}")
+    print("👑 AUTONOMOUS TAMIL MEGA-PLAYLIST PUSHER (MULTI-VOLUME)")
+    print(f"✓ Connected as: {display_name} (ID: {user_id})")
+
+    # If --create-new or target is None, create new volume playlist
+    if args.create_new or not args.target:
+        print(f"\nCreating new Volume playlist: '{args.name}'...")
+        desc = "The ultimate Tamil music collection 🎵 | All-In-One Master Archive (Vol 2)."
+        new_pl = sp.user_playlist_create(user=user_id, name=args.name, public=True, description=desc)
+        target_id = new_pl["id"]
+        target_url = new_pl.get("external_urls", {}).get("spotify", f"https://open.spotify.com/playlist/{target_id}")
+        print(f"✓ Created new Volume playlist: {target_url}")
+    else:
+        target_id = args.target
+        if "open.spotify.com" in target_id:
+            parsed = parse_spotify_url(target_id)
+            if parsed:
+                target_id = parsed[1]
+        target_url = f"https://open.spotify.com/playlist/{target_id}"
+
+    print(f"🎯 Target Playlist: {target_url}")
     print("=" * 70)
 
     # Gather all playlists to process
@@ -156,14 +176,26 @@ def main():
 
     print(f"📋 Loaded {len(playlists_to_process)} major Tamil playlists into queue for scanning.")
 
-    # Authenticate with Spotify
-    sp = get_spotify_client()
-    user_info = sp.current_user()
-    display_name = user_info.get("display_name", user_info["id"])
-    print(f"✓ Connected as: {display_name} (ID: {user_info['id']})")
+    # 1. Fetch live existing songs from previous volume (to prevent duplicates across Volume 1 & Volume 2)
+    existing_uris = set()
+    existing_normalized = set()
 
-    # Fetch live existing songs from your target playlist
-    existing_uris, existing_normalized = fetch_existing_target_items(sp, target_id)
+    if args.filter_from:
+        filter_id = args.filter_from
+        if "open.spotify.com" in filter_id:
+            p = parse_spotify_url(filter_id)
+            if p:
+                filter_id = p[1]
+        print(f"📁 Filtering against Volume 1 (https://open.spotify.com/playlist/{filter_id})...")
+        v1_uris, v1_norm = fetch_existing_target_items(sp, filter_id)
+        existing_uris |= v1_uris
+        existing_normalized |= v1_norm
+
+    # 2. If target playlist is existing, also check what's in target
+    if target_id != args.filter_from:
+        t_uris, t_norm = fetch_existing_target_items(sp, target_id)
+        existing_uris |= t_uris
+        existing_normalized |= t_norm
 
     total_newly_added = 0
     hit_limit = False
