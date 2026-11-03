@@ -221,6 +221,10 @@ def main():
             if not uri or not norm:
                 continue
 
+            # Validate that it is a proper Spotify track URI (skip podcast episodes or local files)
+            if not re.match(r"^spotify:track:[a-zA-Z0-9]{15,30}$", uri):
+                continue
+
             if uri in existing_uris or norm in existing_normalized:
                 continue
 
@@ -248,12 +252,25 @@ def main():
                 print(f"    [{pl_added}/{len(new_batch_uris)}] ✓ Added {len(chunk)} songs (Total Added: {total_newly_added})...")
                 time.sleep(0.3)
             except Exception as e:
-                err_str = str(e)
-                print(f"    [!] Spotify error on adding batch: {e}")
-                if "limit reached" in err_str.lower() or "400" in err_str or "403" in err_str:
+                err_str = str(e).lower()
+                if "limit reached" in err_str or "size limit" in err_str:
                     print("\n⚠️ Spotify playlist has reached its absolute maximum cloud limit!")
                     hit_limit = True
                     break
+
+                # If a single track in the batch was invalid, add the rest individually
+                if "unsupported" in err_str or "uri" in err_str:
+                    print("    [!] A track in this batch had an unsupported URI. Adding valid songs individually...")
+                    for single_uri in chunk:
+                        try:
+                            sp.playlist_add_items(target_id, [single_uri])
+                            pl_added += 1
+                            total_newly_added += 1
+                        except Exception:
+                            pass
+                    continue
+
+                print(f"    [!] Retrying batch error: {e}")
                 time.sleep(1.0)
 
     print("\n" + "=" * 70)
