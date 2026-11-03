@@ -134,12 +134,14 @@ def fetch_spotify_via_api(item_type: str, item_id: str, client_id: str, client_s
                     t_dur = (track.get("duration_ms") or 0) // 1000
                     t_thumb = track.get("album", {}).get("images", [{}])[0].get("url") if track.get("album", {}).get("images") else thumb
                     t_album = track.get("album", {}).get("name")
+                    t_uri = track.get("uri") or (f"spotify:track:{track.get('id')}" if track.get("id") else None)
                     tracks.append({
                         "title": t_title,
                         "artist": t_artists,
                         "duration": t_dur,
                         "thumbnail_url": t_thumb,
                         "album": t_album,
+                        "uri": t_uri,
                     })
                 next_url = t_data.get("next")
 
@@ -276,12 +278,15 @@ def fetch_spotify_via_spotapi(item_id: str, max_tracks: Optional[int] = None) ->
                 t_thumb = max(album_sources, key=lambda s: s.get("width", 0)).get("url") if album_sources else None
                 t_album = album_info.get("name")
 
+                t_uri = track_data.get("uri") or (f"spotify:track:{track_data.get('id')}" if track_data.get("id") else None)
+
                 tracks.append({
                     "title": t_name,
                     "artist": t_artists,
                     "duration": t_dur,
                     "thumbnail_url": t_thumb,
                     "album": t_album,
+                    "uri": t_uri,
                 })
 
                 if target_total and len(tracks) >= target_total:
