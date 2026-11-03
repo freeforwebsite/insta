@@ -36,22 +36,28 @@ def get_existing_song_names(folder: Path) -> set:
 def main():
     parser = argparse.ArgumentParser(description="Find and re-download missing Spotify songs.")
     parser.add_argument("--url", default=DEFAULT_URL, help="Spotify playlist URL")
-    parser.add_argument("--folder", default=str(DEFAULT_FOLDER), help="Folder with already downloaded MP3s")
-    parser.add_argument("--limit", type=int, default=5000, help="Check up to song index (e.g. 5000 for all 4,595 songs)")
+    parser.add_argument("--folder", default=str(DEFAULT_FOLDER), help="Master folder with existing songs to filter against")
+    parser.add_argument("--save-to", default=None, help="New folder to save downloaded songs (optional, keeps playlists separate)")
+    parser.add_argument("--limit", type=int, default=5000, help="Check up to song index (e.g. 5000 for all songs)")
     parser.add_argument("--workers", type=int, default=10, help="Parallel download threads")
     parser.add_argument("--quality", default="320", help="Audio quality bitrate")
     args = parser.parse_args()
 
-    folder = Path(args.folder)
-    folder.mkdir(parents=True, exist_ok=True)
+    master_folder = Path(args.folder)
+    dest_folder = Path(args.save_to) if args.save_to else master_folder
+    dest_folder.mkdir(parents=True, exist_ok=True)
 
     print("=" * 65)
-    print("🎵 SPOTIFY MISSING SONGS RE-DOWNLOADER")
-    print(f"📁 Local Folder: {folder}")
+    print("🎵 SPOTIFY FILTER & DOWNLOADER")
+    print(f"📁 Master Library (Filter): {master_folder}")
+    if dest_folder != master_folder:
+        print(f"💾 Save Destination:      {dest_folder}")
     print("=" * 65)
 
-    existing_set = get_existing_song_names(folder)
-    print(f"✓ Found {len(existing_set)} songs already downloaded in your folder.")
+    existing_set = get_existing_song_names(master_folder)
+    if dest_folder != master_folder and dest_folder.exists():
+        existing_set |= get_existing_song_names(dest_folder)
+    print(f"✓ Found {len(existing_set)} existing songs in your library to filter against.")
 
     print(f"\n[1/3] Fetching Spotify playlist metadata up to song #{args.limit}...")
     meta = fetch_universal_metadata(args.url, max_tracks=args.limit)
@@ -64,20 +70,22 @@ def main():
     print(f"✓ Loaded {total_requested} tracks from playlist.")
 
     missing_tracks = []
+    seen_in_playlist = set()
     for i, t in enumerate(all_tracks, start=1):
         norm = normalize_title(t.get("title", ""))
-        if norm and norm not in existing_set:
+        if norm and norm not in existing_set and norm not in seen_in_playlist:
+            seen_in_playlist.add(norm)
             missing_tracks.append((i, t))
 
     print(f"\n[2/3] Comparison Results:")
-    print(f"   ✓ Already downloaded: {total_requested - len(missing_tracks)} songs")
-    print(f"   ⚠️ Missing songs to download: {len(missing_tracks)} songs")
+    print(f"   ✓ Already in library / duplicates: {total_requested - len(missing_tracks)} songs filtered out")
+    print(f"   🆕 Brand-new songs to download:     {len(missing_tracks)} songs")
 
     if not missing_tracks:
-        print("\n🎉 Congratulations! All songs in this range are already downloaded!")
+        print("\n🎉 All songs from this playlist are already in your library! Nothing new to download.")
         return
 
-    print(f"\n[3/3] Starting parallel download of {len(missing_tracks)} missing songs ({args.workers} concurrent threads)...")
+    print(f"\n[3/3] Starting parallel download of {len(missing_tracks)} new songs ({args.workers} concurrent threads)...")
 
     progress_lock = threading.Lock()
     completed = 0
@@ -102,7 +110,7 @@ def main():
         try:
             res = download_song(
                 query=query,
-                output_dir=str(folder),
+                output_dir=str(dest_folder),
                 quality=args.quality,
                 thumbnail_url=track.get("thumbnail_url"),
                 title=t_title,
@@ -130,10 +138,10 @@ def main():
             pass
 
     print("\n" + "=" * 65)
-    print("🎉 MISSING SONGS DOWNLOAD COMPLETED!")
+    print("🎉 DOWNLOAD COMPLETED!")
     print(f"   ✓ Newly Downloaded: {succeeded}")
     print(f"   ✗ Still Failed: {failed}")
-    print(f"📁 All files saved to: {folder}")
+    print(f"📁 All files saved to: {dest_folder}")
     print("=" * 65)
 
 if __name__ == "__main__":
