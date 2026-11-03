@@ -8,19 +8,20 @@ on:
         required: true
         default: "https://open.spotify.com/playlist/7eMHkKCKwelg7afYViQMAf"
       part:
-        description: "Select Part ('all' runs Parts 1-5 automatically, 'test_5_songs' for sample)"
+        description: "Select Part ('1_and_5' runs Part 1 & Part 5 in parallel, or choose individual)"
         required: true
         type: choice
         options:
-          - "all"
-          - "test_5_songs"
+          - "1_and_5"
           - "1"
+          - "5"
+          - "all"
           - "2"
           - "3"
           - "4"
-          - "5"
+          - "test_5_songs"
           - "custom"
-        default: "all"
+        default: "1_and_5"
       start_index:
         description: "Custom Start Index (Only used if part is 'custom')"
         required: false
@@ -53,6 +54,8 @@ jobs:
           PART="${{ github.event.inputs.part }}"
           if [ "$PART" = "all" ]; then
             echo 'parts=["1", "2", "3", "4", "5"]' >> $GITHUB_OUTPUT
+          elif [ "$PART" = "1_and_5" ]; then
+            echo 'parts=["1", "5"]' >> $GITHUB_OUTPUT
           elif [ "$PART" = "test_5_songs" ]; then
             echo 'parts=["test_5_songs"]' >> $GITHUB_OUTPUT
           elif [ "$PART" = "custom" ]; then
@@ -66,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
-      max-parallel: 1
+      max-parallel: 2 # Runs both parts at the same time in parallel!
       fail-fast: false
       matrix:
         part: ${{ fromJson(needs.setup.outputs.parts) }}
